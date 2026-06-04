@@ -93,10 +93,11 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
       description:
         "Updates the candidate's profile. Send only the fields to change; omitted fields stay as they are; " +
         "a blank string clears a field. Confirm each field with the candidate before submitting — don't assume. " +
-        "The summary and transformative_books are the candidate's own voice — never auto-generate them.",
+        "The summary and transformative_books are the candidate's own voice — never auto-generate them. " +
+        "Note: email is an identity field — it can be set once if empty but never changed afterwards.",
       inputSchema: {
         phone: z.string().optional(),
-        email: z.string().optional(),
+        email: z.string().email().optional(),
         linkedin_url: z.string().optional(),
         github_url: z.string().optional(),
         current_title: z.string().optional(),
@@ -130,6 +131,22 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
       },
     },
     async (args) => {
+      // Email is an identity field (used for SSO account linking): allow
+      // setting it once if empty, refuse changes afterwards.
+      if (args.email !== undefined) {
+        const [current] = await db
+          .select({ email: candidates.email })
+          .from(candidates)
+          .where(eq(candidates.id, ctx.candidateId))
+          .limit(1);
+        if (current?.email && current.email !== args.email) {
+          return errorResult(
+            "Email can't be changed once set — it identifies the account for sign-in. " +
+              "Contact the hiring team if it needs correcting.",
+          );
+        }
+      }
+
       const patch: Record<string, unknown> = {
         updatedAt: new Date(),
         profileVersion: sql`${candidates.profileVersion} + 1`,

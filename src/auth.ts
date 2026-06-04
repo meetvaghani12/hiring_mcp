@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "./db/index.js";
 import { candidates, type Candidate } from "./db/schema.js";
@@ -17,6 +17,13 @@ export function newToken(): { token: string; tokenHash: string; tokenHint: strin
 /** Hash a raw bearer token for storage / lookup. */
 export function hashToken(raw: string): string {
   return createHash("sha256").update(raw).digest("hex");
+}
+
+/** Constant-time string comparison (hashes first so lengths never leak). */
+export function safeEqual(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
 }
 
 /** Extract a Bearer token from an Authorization header, or null. */
