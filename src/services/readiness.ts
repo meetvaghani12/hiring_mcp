@@ -83,11 +83,11 @@ export async function computeReadiness(candidateId: string): Promise<Readiness> 
   const hasSessionLog = Boolean(sessionLog);
   const sessionLogRequired = config.requireSessionLog;
 
+  // Apply gate is now just: complete profile + a resume.
+  // (CLAUDE.md / session log are no longer required.)
   const missing: string[] = [];
   if (profileMissingFields.length > 0) missing.push("profile");
   if (!hasResume) missing.push("resume");
-  if (!hasAgentConfig) missing.push("agent_config");
-  if (sessionLogRequired && !hasSessionLog) missing.push("session_log");
 
   return {
     candidate,

@@ -136,6 +136,10 @@ export function registerAdminRoutes(app: Express) {
         .select({
           application_id: applications.id,
           status: applications.status,
+          decision: applications.decision,
+          fit_score: applications.fitScore,
+          fit_summary: applications.fitSummary,
+          fit_gaps: applications.fitGaps,
           created_at: applications.createdAt,
           candidate_id: candidates.id,
           candidate_name: candidates.name,

@@ -219,6 +219,7 @@ export function mcpPage(data: {
   tokenHint: string | null;
   freshToken?: string;
   tokenExpiresAt?: Date | null;
+  targetTitle?: string | null;
 }): string {
   const tokenDisplay = data.freshToken
     ? escapeHtml(data.freshToken)
@@ -255,7 +256,17 @@ export function mcpPage(data: {
   <div class="codehead">claude code <button onclick="hmCopy('claudeCmd')">copy</button></div>
   <pre id="claudeCmd">${escapeHtml(claudeCmd)}</pre>
   <div class="codehead">codex <button onclick="hmCopy('codexCmd')">copy</button></div>
-  <pre id="codexCmd">${escapeHtml(codexCmd)}</pre>`;
+  <pre id="codexCmd">${escapeHtml(codexCmd)}</pre>
+
+  <h2>Once connected</h2>
+  <ol class="muted" style="line-height:2">
+    <li>Run the command above, then <strong>start your agent</strong> (a fresh start loads the tools).</li>
+    <li>In your agent, say: <strong>"review my fit for ${
+      data.targetTitle ? escapeHtml(`the ${data.targetTitle} role`) : "this role"
+    } and apply"</strong>.</li>
+    <li>It will fill your profile, read your resume, then <strong>compare you to the job description</strong> — showing strong matches, gaps, and a fit score.</li>
+    <li>You decide whether to apply. Either way your details reach the hiring team.</li>
+  </ol>`;
   return layout({ active: "mcp", body });
 }
 
@@ -280,21 +291,66 @@ export function wikiPage(positions: Position[]): string {
   return layout({ active: "wiki", body });
 }
 
-export function applyPage(r: Readiness): string {
+export interface CandidateApplication {
+  title: string;
+  status: string;
+  decision: string;
+  fit_score: number | null;
+  fit_summary: string | null;
+  fit_gaps: string[] | null;
+  created_at: Date;
+}
+
+export function applyPage(
+  r: Readiness,
+  target: { title: string; description: string } | null,
+  applications: CandidateApplication[] = [],
+): string {
   const item = (ok: boolean, label: string) =>
     `<div class="check"><span class="${ok ? "ok" : "no"}">${ok ? "&#10003;" : "&#9711;"}</span> ${label}</div>`;
   const profileOk = r.profileMissingFields.length === 0;
   const ready = r.applicationReady;
+
+  const targetBlock = target
+    ? `<div class="label">applying to</div><h2 style="margin-top:0">${escapeHtml(target.title)}</h2>
+       <details class="fallback" style="margin:0 0 30px"><summary>View job description</summary>
+       <div class="resume" style="margin-top:12px">${renderMarkdown(target.description)}</div></details>`
+    : `<p class="muted">No specific role selected — <a href="/wiki">browse positions</a> to pick one.</p>`;
+
   const msg = ready
-    ? `You're ready to apply. Browse <a href="/wiki">positions</a> and ask your <a href="/mcp">agent</a> when you find a good fit.`
+    ? `You're ready. Connect your <a href="/mcp">agent</a>, then ask it to <strong>review your fit for this role and apply</strong> — it will compare your resume to the job description, show you the match and any gaps, and submit your decision.`
     : `Almost there — ask your <a href="/mcp">agent</a> to complete the items above. Missing: ${escapeHtml(r.missing.join(", "))}.`;
+
+  const appCard = (a: CandidateApplication) => {
+    const score = a.fit_score != null ? `<span class="badge">fit ${a.fit_score}/100</span>` : "";
+    const gaps =
+      a.fit_gaps && a.fit_gaps.length
+        ? `<div class="fl" style="margin-top:14px">gaps to address</div><ul>${a.fit_gaps
+            .map((g) => `<li>${escapeHtml(g)}</li>`)
+            .join("")}</ul>`
+        : "";
+    return `<div class="card">
+      <div class="pos"><h3 style="margin:0">${escapeHtml(a.title)}</h3>
+        <span class="badge">${escapeHtml(a.status)}</span></div>
+      <div style="margin-top:8px">${score}</div>
+      ${a.fit_summary ? `<div class="fl" style="margin-top:14px">fit summary</div><div>${escapeHtml(a.fit_summary)}</div>` : ""}
+      ${gaps}
+    </div>`;
+  };
+
+  const appsBlock = applications.length
+    ? `<h2>Your applications</h2>
+       <p class="muted">The fit assessment your agent produced when you applied.</p>
+       ${applications.map(appCard).join("")}`
+    : "";
+
   const body = `
   <h1>Apply</h1>
+  ${targetBlock}
   ${item(profileOk, "Profile")}
   ${item(r.hasResume, "Resume")}
-  ${item(r.hasAgentConfig, "Your CLAUDE.md")}
-  ${item(r.hasSessionLog, "Agent log")}
-  <p class="muted" style="margin-top:28px">${msg}</p>`;
+  <p class="muted" style="margin-top:28px">${msg}</p>
+  ${appsBlock}`;
   return layout({ active: "apply", body });
 }
 

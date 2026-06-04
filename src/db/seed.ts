@@ -5,6 +5,7 @@ const SAMPLE_POSITIONS = [
   {
     title: "Senior Cloud Platform Engineer",
     location: "Remote",
+    externalJobId: "senior-cloud-platform-engineer",
     description: [
       "## Senior Cloud Platform Engineer",
       "",
@@ -25,6 +26,7 @@ const SAMPLE_POSITIONS = [
   {
     title: "Backend Engineer (Go)",
     location: "Hybrid — Bengaluru",
+    externalJobId: "backend-engineer-go",
     description: [
       "## Backend Engineer (Go)",
       "",
@@ -42,6 +44,7 @@ const SAMPLE_POSITIONS = [
   {
     title: "AI Agent Engineer",
     location: "Remote",
+    externalJobId: "ai-agent-engineer",
     description: [
       "## AI Agent Engineer",
       "",
