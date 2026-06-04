@@ -142,6 +142,18 @@ pre{background:var(--card);border:1px solid var(--border);border-radius:12px;pad
 .err{color:#e5534b;margin:12px 0}
 .reveal{border-color:color-mix(in srgb,var(--green) 45%,transparent)}
 footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--border);color:var(--muted);font-size:13px}
+table.list{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px}
+table.list th{color:var(--muted);text-transform:uppercase;letter-spacing:.12em;font-size:11px;text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+table.list td{padding:10px;border-bottom:1px solid var(--border);vertical-align:top}
+.badge.st-submitted{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.badge.st-under_review{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
+.badge.st-interviewing{color:var(--quote);border-color:color-mix(in srgb,var(--quote) 45%,transparent)}
+.badge.st-hired{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent)}
+.badge.st-rejected{color:#e5534b;border-color:rgba(229,83,75,.45)}
+.badge.st-declined{color:var(--muted)}
+.btn.sm{padding:5px 10px;font-size:12px}
+form.inline{display:inline-block;margin:0 4px 0 0}
+textarea.input{min-height:160px;resize:vertical}
 `;
 
 const THEME_SCRIPT = `
@@ -162,7 +174,8 @@ function nav(active: string): string {
   </nav>`;
 }
 
-export function layout(opts: { active: string; body: string; authed?: boolean }): string {
+export function layout(opts: { active: string; body: string; authed?: boolean; navHtml?: string }): string {
+  const navBlock = opts.navHtml ?? (opts.authed === false ? '<div style="flex:1"></div>' : nav(opts.active));
   return `<!doctype html><html lang="en" data-theme="dark"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${BRAND}</title>
@@ -174,7 +187,7 @@ export function layout(opts: { active: string; body: string; authed?: boolean })
 </head><body><div class="wrap">
 <header class="top">
   <div class="brand"><span class="glyph"><i></i><i></i><i></i><i></i></span>${BRAND}<sup>β</sup></div>
-  ${opts.authed === false ? '<div style="flex:1"></div>' : nav(opts.active)}
+  ${navBlock}
   <button class="toggle" onclick="hmToggle()" aria-label="theme"><span id="themeIcon">&#9728;</span></button>
 </header>
 ${opts.body}

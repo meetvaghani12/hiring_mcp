@@ -5,6 +5,7 @@ import { db } from "../../db/index.js";
 import { applications, positions } from "../../db/schema.js";
 import { config } from "../../config.js";
 import { computeReadiness } from "../../services/readiness.js";
+import { notifyNewApplication } from "../../services/notify.js";
 import { isUuid } from "../../validation.js";
 import { jsonResult, errorResult, type ToolContext } from "../context.js";
 
@@ -119,6 +120,15 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
           note: "You've already applied to this role — only one application per role is allowed.",
         });
       }
+
+      notifyNewApplication({
+        application_id: app.id,
+        candidate_name: r.candidate.name,
+        candidate_email: r.candidate.email,
+        position_title: p.title,
+        status: app.status,
+        fit_score: fit_score ?? null,
+      });
 
       return jsonResult({
         recorded: true,
