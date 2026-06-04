@@ -10,7 +10,7 @@ import "dotenv/config";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
-const BASE = process.env.PUBLIC_BASE_URL ?? "http://localhost:8080";
+const BASE = process.env.PUBLIC_BASE_URL ?? "http://localhost:8787";
 const ADMIN = process.env.ADMIN_TOKEN ?? "change-me-admin-token";
 
 function step(msg: string) {

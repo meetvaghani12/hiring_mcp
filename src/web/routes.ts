@@ -19,7 +19,8 @@ import {
   takeFlashToken,
   takePendingJob,
 } from "./session.js";
-import { applyPage, loginPage, mcpPage, mockLinkedInPage, profilePage, wikiPage } from "./views.js";
+import { applyPage, loginPage, mcpPage, messagePage, mockLinkedInPage, positionPage, profilePage, wikiPage } from "./views.js";
+import { isUuid } from "../validation.js";
 
 type AuthedReq = Request & { candidateId: string };
 
@@ -36,6 +37,7 @@ const wrap =
 async function resolvePosition(jobId: string) {
   const [byExternal] = await db.select().from(positions).where(eq(positions.externalJobId, jobId)).limit(1);
   if (byExternal) return byExternal;
+  if (!isUuid(jobId)) return null; // a non-UUID here would make Postgres throw -> 500
   const [byId] = await db.select().from(positions).where(eq(positions.id, jobId)).limit(1);
   return byId ?? null;
 }
@@ -58,19 +60,44 @@ export function registerWebRoutes(app: Express) {
     "/jobs/:jobId/apply",
     wrap(async (req, res) => {
       const jobId = req.params.jobId;
+      // Validate the job up-front: a typo'd careers-site link should be a
+      // friendly 404, not a dead-end SSO round-trip (or a uuid-cast 500).
+      const position = await resolvePosition(jobId);
+      if (!position) {
+        res
+          .status(404)
+          .type("html")
+          .send(
+            messagePage(
+              "Job not found",
+              "That job link doesn't match any open role. It may have been removed — check the careers page for current openings.",
+            ),
+          );
+        return;
+      }
       const candidateId = currentCandidateId(req);
       if (candidateId) {
         // Already signed in — bind the target job and go straight to the checklist.
-        const position = await resolvePosition(jobId);
-        if (position) {
-          await db.update(candidates).set({ targetPositionId: position.id }).where(eq(candidates.id, candidateId));
-        }
+        await db.update(candidates).set({ targetPositionId: position.id }).where(eq(candidates.id, candidateId));
         res.redirect("/apply");
         return;
       }
       // Not signed in — remember the job through the LinkedIn round-trip.
       setPendingJob(res, jobId);
       res.redirect("/auth/linkedin");
+    }),
+  );
+
+  // Public, shareable job-description page (linked from browse_positions).
+  app.get(
+    "/positions/:id",
+    wrap(async (req, res) => {
+      const position = await resolvePosition(req.params.id);
+      if (!position) {
+        res.status(404).type("html").send(messagePage("Position not found", "This position doesn't exist or was removed."));
+        return;
+      }
+      res.type("html").send(positionPage(position, currentCandidateId(req) !== null));
     }),
   );
 

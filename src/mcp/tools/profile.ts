@@ -200,7 +200,7 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
       return jsonResult({
         saved: true,
         version,
-        url: `${config.publicBaseUrl}/resume`,
+        url: `${config.publicBaseUrl}/profile`, // resume renders on the profile page
         ...(await readinessSummary(ctx.candidateId)),
       });
     },

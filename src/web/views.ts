@@ -200,6 +200,29 @@ export function loginPage(error?: string): string {
   return layout({ active: "", body, authed: false });
 }
 
+/** Simple unauthenticated message page (friendly 404s etc.). */
+export function messagePage(title: string, text: string): string {
+  const body = `
+  <h1>${escapeHtml(title)}</h1>
+  <p class="muted">${escapeHtml(text)}</p>
+  <p><a class="btn" href="/wiki">View open positions</a></p>`;
+  return layout({ active: "", body, authed: false });
+}
+
+/** Public, shareable job-description page. */
+export function positionPage(p: Position, signedIn: boolean): string {
+  const applyHref = `/jobs/${encodeURIComponent(p.externalJobId ?? p.id)}/apply`;
+  const open = p.status === "open";
+  const body = `
+  <div class="label">open role</div>
+  <h1>${escapeHtml(p.title)}${open ? "" : ' <span class="badge closed">CLOSED</span>'}</h1>
+  <p class="muted">${escapeHtml(p.location ?? "Remote")} &middot; Full-time</p>
+  ${open ? `<p><a class="btn" href="${applyHref}">Apply${signedIn ? "" : " — sign in with LinkedIn"}</a></p>` : ""}
+  <hr class="hr">
+  <div class="resume">${renderMarkdown(p.description)}</div>`;
+  return layout({ active: "", body, authed: signedIn });
+}
+
 export function mockLinkedInPage(): string {
   const body = `
   <div class="label">mock linkedin · dev only</div>

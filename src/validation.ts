@@ -1,3 +1,13 @@
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Cheap UUID shape check. Postgres throws on non-UUID input to a uuid column,
+ * which turns user typos (and careers-site link typos) into 500s — guard first.
+ */
+export function isUuid(s: string): boolean {
+  return UUID_RE.test(s);
+}
+
 export const RESUME_MAX = 25_000;
 export const AGENT_CONFIG_MIN = 1_000;
 export const AGENT_CONFIG_MAX = 100_000;
