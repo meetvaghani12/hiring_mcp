@@ -1,5 +1,11 @@
 # hiring-mcp — Deployment Architecture (AWS, minimal & scale-to-zero)
 
+> **Status: deferred blueprint.** For current traffic, deploy the `Dockerfile` to a
+> single small always-on host (Fly/Fargate/EC2) with managed Postgres + S3 — fewer
+> moving parts, same code. Revisit this serverless design when traffic is real.
+> Note: the in-process rate limiter and `pg.Pool` both assume a single instance;
+> the driver swap below addresses the pool, the limiter needs a shared store.
+
 Goal: deploy the `hiring-mcp` service (Express + MCP, Postgres/Drizzle, S3 presigned uploads)
 with **as few services as possible**, **automatic 0 → millions autoscaling**, and **no idle cost**.
 

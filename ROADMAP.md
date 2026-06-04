@@ -1,87 +1,48 @@
-# hiring-mcp — Roadmap (RealFast parity & beyond)
+# hiring-mcp — Roadmap
 
-Tracking the phased plan derived from comparing our MCP to RealFast's `applyto_realfast`.
-Check items off as they ship.
+Legend: `[x]` done · `[ ]` pending
 
-Legend: `[x]` done · `[ ]` pending · `[~]` in progress
+## Shipped
 
----
+**Candidate flow (job-link → SSO → compare → apply)**
+- [x] `GET /jobs/:jobId/apply` entry (slug or uuid), job carried through SSO, friendly 404s
+- [x] LinkedIn SSO (OIDC) with hardened account linking + immutable identity email
+- [x] Dev mock SSO — explicit opt-in, refused in production
+- [x] 7 MCP tools; gate = profile + resume; `REQUIRE_SESSION_LOG=true` adds the
+      verified session-log upload tools + gate
+- [x] Honest statuses: `apply → submitted`, `decline → declined` (agent must disclose);
+      fit fields labeled self-assessed everywhere
+- [x] One application per role (DB constraint, race-free insert)
+- [x] Public shareable JD page `GET /positions/:id`
 
-## Baseline — what already matches RealFast (done in initial build)
-- [x] 10 MCP tools with identical names
-- [x] `get_my_profile` response shape
-- [x] Gating (`application_ready` + `missing[]`)
-- [x] Connect/restart behavior (client-side; documented on `/mcp`)
-- [x] Web pages: mcp / wiki / apply / profile + dark-light theme toggle
-- [x] Token reissue from the web UI
-- [x] Session-log integrity — **stronger than RealFast** (download + recompute SHA-256, not HEAD-only)
-- [x] Auto-discovery descriptions (agent finds CLAUDE.md + session log itself, no asking)
-- [x] Profile page renders the full uploaded résumé (not just skills)
+**Recruiter side**
+- [x] Recruiter console `/recruiter`: pipeline with legal status transitions
+      (`submitted → under_review → interviewing → hired/rejected`), candidate review
+      (profile, rendered resume, session logs), positions create/close/reopen
+- [x] New-application webhook (`APPLICATION_WEBHOOK_URL`)
+- [x] JSON admin API kept for ops/scripts (`/admin/*`, Bearer)
 
-Intentional differences (by design, "your own hiring MCP"):
-- Positions come from our own DB + admin API, **not** Ashby ATS.
+**Security & reliability**
+- [x] Hash-at-rest tokens with TTL + rotation; constant-time admin compare
+- [x] Production boot checks (no weak secrets, no mock SSO)
+- [x] Expiring signed sessions, secure cookies, rate limits, security headers, CSP
+- [x] URL scheme guards (write + render); XSS-safe markdown rendering
+- [x] Unit tests (31) + CI; e2e smoke script; Dockerfile
 
----
+## Next
 
-## P0 — Fidelity quick wins ✅ COMPLETE
-- [x] **P0.1** `transformative_books` anti-hallucination integrity check
-      (lodestar/recalibrated/watershed marker-word instruction in the field description)
-- [x] **P0.2** Token expiry — `TOKEN_TTL_DAYS` (default 90), enforced in `getCandidateByToken`
-      (MCP→401, web→401), shown as `expires …` on `/mcp`
-- [x] **P0.3** Profile versioning — `profile_version` bumps on every `update_my_profile`,
-      returned in `get_my_profile`, shown as "Profile version N" badge
-- [x] **P0.4** Warmer "senior recruiter" persona in tool descriptions (esp. `get_my_profile`)
-
-Verified: full smoke test passes; expiry valid→302 / expired→401; version 1→2 on update.
-Migration: `drizzle/0002_*`.
-
----
-
-## Job-link apply flow ✅ COMPLETE
-The candidate-facing flow you specified (company "Apply now" → SSO → compare → apply/decline).
-- [x] Entry `GET /jobs/:jobId/apply` (resolves `external_job_id` or uuid), job carried through SSO
-- [x] After SSO, `target_position_id` bound to the candidate; surfaced in `get_my_profile`, `/mcp`, `/apply`
-- [x] Gate relaxed to **profile + resume** (CLAUDE.md + session log dropped from tools & gating)
-- [x] `apply_to_position(decision, fit_score, fit_summary, fit_gaps)` — agent compares JD↔resume, then:
-      `apply → shortlisted`, `decline → applied` (data sent either way); **one application per role**
-- [x] Fit comparison shown to candidate AND persisted on the application (admin list includes it)
-- [x] Post-install "Once connected" instructions on `/mcp`; JD shown on `/apply`
-- [x] JD is hardcoded in `positions.description` for now (external JD source = future)
-- Verified: smoke test (apply→shortlisted, decline→applied, one-per-role) + job-link→SSO→target binding.
-
-## P1 — Recruiter side (the missing half)
-- [ ] **P1.1** Recruiter web UI over the existing admin API
-      - [ ] Candidate list
-      - [ ] Application pipeline view
-      - [ ] Artifact viewer (resume / agent config / session log)
-      - [ ] "My Interviews"-style table (matches image 5)
-- [ ] **P1.2** Application status transitions
-      (`submitted → under_review → interviewing → hired/rejected`) with admin actions
-- [ ] **P1.3** Recruiter auth (separate from candidate sessions; reuse `ADMIN_TOKEN` or accounts)
-
----
-
-## P2 — Production
-- [x] **P2.1** Real web auth — **LinkedIn SSO (OIDC)** self-service signup
-      - [x] `/auth/linkedin` + `/auth/linkedin/callback` (code → token → userinfo)
-      - [x] find-or-create by `linkedin_sub`, link existing by email, auto-mint token for new accounts
-      - [x] fresh-token reveal once on `/mcp` after signup; CSRF `state`; profile pre-fill (name/email)
-      - [x] **mock mode** (`LINKEDIN_MOCK`) to test the full flow with no LinkedIn app
-      - [ ] real LinkedIn app credentials (manual: create app, add OIDC product, set redirect URI)
-- [ ] **P2.2** Deploy: Lambda + Aurora Serverless v2 (Data API) + S3 + CloudFront — see `DEPLOY.md`
-- [ ] **P2.3** Optional ATS sync (Ashby or similar) to import/refresh positions
-
----
-
-## P3 — Optional AI layer (server-side, uses your Anthropic key)
-- [ ] **P3.1** Candidate ↔ role fit scoring (shown in recruiter UI)
-- [ ] **P3.2** Smarter fabrication detection (Claude classifier augmenting the regex heuristics)
-- [ ] **P3.3** Resume parsing → auto-extract structured profile fields
-- [ ] **P3.4** Session-log summary (recruiter-facing TL;DR)
-
----
+- [ ] Recruiter accounts (per-recruiter identity instead of one shared admin token);
+      audit log of status changes
+- [ ] Email verification / notification to candidates on status change
+- [ ] S3 lifecycle rule (or sweeper) for orphaned `pending/` session-log uploads
+- [ ] Pagination once lists pass ~1k rows
+- [ ] Real LinkedIn app credentials in the deployed environment
+- [ ] Deploy (see `DEPLOY.md`) — start with a single always-on container; the
+      Lambda/Aurora scale-to-zero build-out is deferred until traffic justifies it
+- [ ] Optional server-side AI layer: independent fit scoring (replaces reliance on the
+      candidate's self-assessment), resume parsing → structured fields, session-log TL;DR
 
 ## Notes
-- The candidate's AI agent provides all candidate-side intelligence; server stays deterministic.
-- Reference: `realfast-mcp-report.md` (parent dir) and the RealFast tool `tools/list` curl.
-- Restart-after-`mcp add` is a client (Claude Code / Codex) constraint — not fixable server-side.
+- The candidate's AI agent provides all candidate-side intelligence; the server stays
+  deterministic and steers behavior through tool descriptions.
+- Restart-after-`mcp add` is a client constraint (Claude Code / Codex), not fixable server-side.
