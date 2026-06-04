@@ -8,34 +8,51 @@ import { candidates } from "../db/schema.js";
 const COOKIE = "hm_session";
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-function sign(id: string): string {
-  return createHmac("sha256", config.sessionSecret).update(id).digest("base64url");
+const cookieOpts = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: config.isProduction,
+  path: "/",
+};
+
+function sign(payload: string): string {
+  return createHmac("sha256", config.sessionSecret).update(payload).digest("base64url");
 }
 
-export function makeSessionValue(candidateId: string): string {
-  return `${candidateId}.${sign(candidateId)}`;
-}
-
-export function verifySession(value: string | undefined): string | null {
-  if (!value) return null;
-  const dot = value.lastIndexOf(".");
+/** Verify `value.mac` and return `value`, or null. Constant-time MAC check. */
+function verifySigned(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const dot = raw.lastIndexOf(".");
   if (dot <= 0) return null;
-  const id = value.slice(0, dot);
-  const mac = value.slice(dot + 1);
-  const expected = sign(id);
-  const a = Buffer.from(mac);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
+  const value = raw.slice(0, dot);
+  const mac = Buffer.from(raw.slice(dot + 1));
+  const expected = Buffer.from(sign(value));
+  if (mac.length !== expected.length || !timingSafeEqual(mac, expected)) return null;
+  return value;
+}
+
+/**
+ * Session value is `candidateId.issuedAtMs` + MAC, so a leaked cookie value
+ * expires server-side — the browser maxAge alone is not a security boundary.
+ */
+export function makeSessionValue(candidateId: string, now = Date.now()): string {
+  const payload = `${candidateId}.${now}`;
+  return `${payload}.${sign(payload)}`;
+}
+
+export function verifySession(raw: string | undefined, now = Date.now()): string | null {
+  const payload = verifySigned(raw);
+  if (!payload) return null;
+  const dot = payload.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const id = payload.slice(0, dot);
+  const iat = Number(payload.slice(dot + 1));
+  if (!Number.isFinite(iat) || now - iat > MAX_AGE_MS) return null;
   return id;
 }
 
 export function setSessionCookie(res: Response, candidateId: string) {
-  res.cookie(COOKIE, makeSessionValue(candidateId), {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: MAX_AGE_MS,
-  });
+  res.cookie(COOKIE, makeSessionValue(candidateId), { ...cookieOpts, maxAge: MAX_AGE_MS });
 }
 
 export function clearSessionCookie(res: Response) {
@@ -50,46 +67,29 @@ export function currentCandidateId(req: Request): string | null {
 // ── One-time flash for a freshly minted token (survives the SSO redirect) ──
 const FLASH = "hm_flash";
 export function setFlashToken(res: Response, token: string) {
-  res.cookie(FLASH, `${token}.${sign(token)}`, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 120_000 });
+  res.cookie(FLASH, `${token}.${sign(token)}`, { ...cookieOpts, maxAge: 120_000 });
 }
 export function takeFlashToken(req: Request, res: Response): string | null {
   const v = req.cookies?.[FLASH] as string | undefined;
   res.clearCookie(FLASH, { path: "/" });
-  if (!v) return null;
-  const dot = v.lastIndexOf(".");
-  if (dot <= 0) return null;
-  const val = v.slice(0, dot);
-  const mac = Buffer.from(v.slice(dot + 1));
-  const exp = Buffer.from(sign(val));
-  return mac.length === exp.length && timingSafeEqual(mac, exp) ? val : null;
+  return verifySigned(v);
 }
 
 // ── Pending target job (survives the SSO redirect) ──
 const PENDING = "hm_pending_job";
 export function setPendingJob(res: Response, positionId: string) {
-  res.cookie(PENDING, `${positionId}.${sign(positionId)}`, {
-    httpOnly: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 600_000,
-  });
+  res.cookie(PENDING, `${positionId}.${sign(positionId)}`, { ...cookieOpts, maxAge: 600_000 });
 }
 export function takePendingJob(req: Request, res: Response): string | null {
   const v = req.cookies?.[PENDING] as string | undefined;
   res.clearCookie(PENDING, { path: "/" });
-  if (!v) return null;
-  const dot = v.lastIndexOf(".");
-  if (dot <= 0) return null;
-  const val = v.slice(0, dot);
-  const mac = Buffer.from(v.slice(dot + 1));
-  const exp = Buffer.from(sign(val));
-  return mac.length === exp.length && timingSafeEqual(mac, exp) ? val : null;
+  return verifySigned(v);
 }
 
 // ── OAuth CSRF state (double-submit cookie) ──
 const STATE = "hm_oauth_state";
 export function setOAuthState(res: Response, state: string) {
-  res.cookie(STATE, state, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 600_000 });
+  res.cookie(STATE, state, { ...cookieOpts, maxAge: 600_000 });
 }
 export function checkOAuthState(req: Request, res: Response, state: string | undefined): boolean {
   const v = req.cookies?.[STATE] as string | undefined;

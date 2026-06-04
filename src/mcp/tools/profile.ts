@@ -8,6 +8,12 @@ import { computeReadiness } from "../../services/readiness.js";
 import { validateResume } from "../../validation.js";
 import { jsonResult, errorResult, type ToolContext } from "../context.js";
 
+// Candidate-supplied links are rendered as <a href> (candidate profile today,
+// recruiter console too) — only http(s) may ever land there. Blank clears.
+const httpUrl = z.string().refine((v) => v === "" || /^https?:\/\//i.test(v), {
+  message: "must be an http(s):// URL",
+});
+
 /** Build the get_my_profile response payload from current readiness. */
 async function buildProfilePayload(candidateId: string) {
   const r = await computeReadiness(candidateId);
@@ -96,11 +102,11 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
       inputSchema: {
         phone: z.string().optional(),
         email: z.string().email().optional(),
-        linkedin_url: z.string().optional(),
-        github_url: z.string().optional(),
+        linkedin_url: httpUrl.optional(),
+        github_url: httpUrl.optional(),
         current_title: z.string().optional(),
         current_company: z.string().optional(),
-        company_website: z.string().optional(),
+        company_website: httpUrl.optional(),
         location: z.string().optional(),
         years_of_experience: z.number().optional(),
         preferred_working_style: z.string().optional(),

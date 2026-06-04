@@ -7,6 +7,12 @@ const BRAND = "join.hiring";
 const MCP_NAME = "hiring";
 const VERSION = "0.1.0";
 
+/** Render-time guard for stored URLs: only http(s) is ever linkable. */
+export function safeUrl(s: string | null | undefined): string | null {
+  if (!s || !/^https?:\/\//i.test(s)) return null;
+  return s;
+}
+
 export function escapeHtml(s: unknown): string {
   if (s === null || s === undefined) return "";
   return String(s)
@@ -406,9 +412,11 @@ export function profilePage(data: {
       ? `<div class="field"><div class="fl">${label}</div><div class="${pre ? "pre" : ""}">${escapeHtml(value)}</div></div>`
       : "";
 
+  const linkedinHref = safeUrl(c.linkedinUrl);
+  const githubHref = safeUrl(c.githubUrl);
   const links = [
-    c.linkedinUrl ? `<a href="${escapeHtml(c.linkedinUrl)}">LinkedIn</a>` : "",
-    c.githubUrl ? `<a href="${escapeHtml(c.githubUrl)}">GitHub</a>` : "",
+    linkedinHref ? `<a href="${escapeHtml(linkedinHref)}" rel="noopener">LinkedIn</a>` : "",
+    githubHref ? `<a href="${escapeHtml(githubHref)}" rel="noopener">GitHub</a>` : "",
   ]
     .filter(Boolean)
     .join(" &middot; ");
