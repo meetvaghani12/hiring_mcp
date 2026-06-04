@@ -134,6 +134,7 @@ details.fallback summary::-webkit-details-marker{display:none}
 .quote{border-left:3px solid var(--quote);padding:2px 0 2px 18px;color:var(--quote);font-style:italic;margin:8px 0 24px}
 .codehead{display:flex;justify-content:space-between;align-items:center;color:var(--muted);text-transform:uppercase;letter-spacing:.16em;font-size:12px;margin:26px 0 10px}
 .codehead button{background:none;border:none;color:var(--muted);cursor:pointer;font-family:inherit;font-size:12px;text-transform:uppercase;letter-spacing:.16em}
+.codehead button .copied,.copied{color:var(--green)}
 pre{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 22px;overflow:auto;margin:0;color:var(--fg);white-space:pre-wrap;word-break:break-word;font-size:13.5px}
 .pre{white-space:pre-wrap;word-break:break-word}
 .field{margin:30px 0}
@@ -165,7 +166,19 @@ textarea.input{min-height:160px;resize:vertical}
 const THEME_SCRIPT = `
 (function(){try{var t=localStorage.getItem('hm-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
 function hmToggle(){var d=document.documentElement;var t=d.getAttribute('data-theme')==='dark'?'light':'dark';d.setAttribute('data-theme',t);try{localStorage.setItem('hm-theme',t);}catch(e){}document.getElementById('themeIcon').textContent=t==='dark'?'\\u2600':'\\u263E';}
-function hmCopy(id){var el=document.getElementById(id);navigator.clipboard.writeText(el.innerText);}
+// Copies data-copy (the real secret-bearing text) if present, else the visible
+// text — so tokens render as placeholders but the clipboard gets the real value.
+function hmCopy(btn,id){
+  var el=document.getElementById(id);
+  var txt=el.getAttribute('data-copy')||el.innerText;
+  navigator.clipboard.writeText(txt).then(function(){
+    if(btn.dataset.busy)return;
+    btn.dataset.busy='1';
+    var old=btn.innerHTML;
+    btn.innerHTML='<span class="copied">\\u2713 copied</span>';
+    setTimeout(function(){btn.innerHTML=old;delete btn.dataset.busy;},1500);
+  });
+}
 `;
 
 function nav(active: string): string {
@@ -263,24 +276,36 @@ export function mcpPage(data: {
   tokenExpiresAt?: Date | null;
   targetTitle?: string | null;
 }): string {
-  const tokenDisplay = data.freshToken
-    ? escapeHtml(data.freshToken)
-    : data.tokenHint
-      ? `cand_…${escapeHtml(data.tokenHint)}`
-      : "cand_…";
-  const tokenForCmd = data.freshToken ?? "YOUR_TOKEN";
+  // The raw token is NEVER rendered as visible text — pages get screenshotted
+  // and shoulder-surfed. Visible text shows a BEARER_TOKEN placeholder; the
+  // real value rides in data-copy and only reaches the clipboard.
+  const hint = data.freshToken ? data.freshToken.slice(-4) : data.tokenHint;
+  const tokenDisplay = hint ? `cand_…${escapeHtml(hint)}` : "cand_…";
   const url = `${config.publicBaseUrl}/mcp/core`;
-  const claudeCmd = `claude mcp remove ${MCP_NAME}\nclaude mcp add --transport http ${MCP_NAME} \\\n  ${url} \\\n  --header "Authorization: Bearer ${tokenForCmd}"`;
-  const codexCmd = `[mcp_servers.${MCP_NAME}]\nurl = "${url}"\nenabled = true\n\n[mcp_servers.${MCP_NAME}.http_headers]\n"Authorization" = "Bearer ${tokenForCmd}"`;
+  const cmds = (tok: string) => ({
+    claude: `claude mcp remove ${MCP_NAME}\nclaude mcp add --transport http ${MCP_NAME} \\\n  ${url} \\\n  --header "Authorization: Bearer ${tok}"`,
+    codex: `[mcp_servers.${MCP_NAME}]\nurl = "${url}"\nenabled = true\n\n[mcp_servers.${MCP_NAME}.http_headers]\n"Authorization" = "Bearer ${tok}"`,
+  });
+  const shown = cmds("BEARER_TOKEN");
+  const real = cmds(data.freshToken ?? "BEARER_TOKEN");
 
   const reveal = data.freshToken
-    ? `<div class="box reveal"><div class="label" style="margin-bottom:8px;color:var(--green)">new token — copy it now, shown once</div><pre id="freshTok">${escapeHtml(data.freshToken)}</pre></div>`
+    ? `<div class="box reveal">
+        <div class="codehead" style="margin:0 0 10px"><span style="color:var(--green)">your new token — copy it now, available only on this page</span>
+          <button onclick="hmCopy(this,'freshTok')">copy</button></div>
+        <pre id="freshTok" data-copy="${escapeHtml(data.freshToken)}">BEARER_TOKEN  (hidden — click copy)</pre>
+      </div>`
     : "";
 
   const body = `
   <div class="label">mcp access token</div>
   <h1>Connect your agent.</h1>
   <p class="muted">Paste the command below into your terminal to connect. There's no sign-in step inside your agent — the token in the command handles it.</p>
+  <p class="muted">Your token is never shown on screen${
+    data.freshToken
+      ? " — the <strong>copy</strong> button puts the full command, real token included, on your clipboard."
+      : ". Only a fresh token can be copied — <strong>reissue</strong> below, then copy the command (it will include the new token)."
+  }</p>
   <p class="muted">Run it in your terminal, then <strong>start (or restart) your agent</strong> — MCP tools are loaded when the agent launches, so a fresh start picks them up automatically. This is a one-time setup.</p>
   <p class="muted">Setting this up comfortably is part of the initial screening.</p>
   <div class="row"><span class="k">status</span><span><span class="dot">&#9679;</span> connected</span></div>
@@ -295,10 +320,10 @@ export function mcpPage(data: {
     <p style="margin:0" class="muted">Confirm this matches your agent config. Reissue if you need the full value again.</p>
   </div><form method="post" action="/mcp/reissue"><button class="btn" type="submit">Reissue token</button></form></div></div>
 
-  <div class="codehead">claude code <button onclick="hmCopy('claudeCmd')">copy</button></div>
-  <pre id="claudeCmd">${escapeHtml(claudeCmd)}</pre>
-  <div class="codehead">codex <button onclick="hmCopy('codexCmd')">copy</button></div>
-  <pre id="codexCmd">${escapeHtml(codexCmd)}</pre>
+  <div class="codehead">claude code <button onclick="hmCopy(this,'claudeCmd')">copy</button></div>
+  <pre id="claudeCmd" data-copy="${escapeHtml(real.claude)}">${escapeHtml(shown.claude)}</pre>
+  <div class="codehead">codex <button onclick="hmCopy(this,'codexCmd')">copy</button></div>
+  <pre id="codexCmd" data-copy="${escapeHtml(real.codex)}">${escapeHtml(shown.codex)}</pre>
 
   <h2>Once connected</h2>
   <ol class="muted" style="line-height:2">
