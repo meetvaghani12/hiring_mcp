@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Express, Request, Response } from "express";
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { agentConfigs, applications, candidates, positions } from "../db/schema.js";
+import { applications, candidates, positions } from "../db/schema.js";
 import { getCandidateByToken, rotateToken } from "../auth.js";
 import { buildAuthUrl, findOrCreateFromLinkedIn, userinfoFromCode } from "../auth/linkedin.js";
 import { config } from "../config.js";
@@ -282,18 +282,11 @@ export function registerWebRoutes(app: Express) {
         .select({ count: sql<number>`count(*)::int` })
         .from(applications)
         .where(eq(applications.candidateId, id));
-      const [ac] = await db
-        .select({ version: agentConfigs.version })
-        .from(agentConfigs)
-        .where(eq(agentConfigs.candidateId, id))
-        .orderBy(desc(agentConfigs.version))
-        .limit(1);
       res.type("html").send(
         profilePage({
           candidate: readiness.candidate,
           readiness,
           applicationsCount: count,
-          agentConfigVersion: ac?.version ?? null,
           resumeMarkdown: readiness.latestResume,
         }),
       );

@@ -63,10 +63,10 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
         "Records the candidate's decision on a position AFTER you've shown them a JD↔resume fit comparison. " +
         "First compare their resume/profile against the job description, present the fit (strong matches + gaps) and a " +
         "0–100 fit_score, then ask whether they want to apply. Call this with their decision and your comparison. " +
-        "`decision: 'apply'` records the application as SHORTLISTED; `decision: 'decline'` still records it (as APPLIED) " +
-        "so the recruiter sees the candidate and the fit — the candidate's data is sent either way. Requires a complete " +
-        "profile and a resume. A candidate may only have ONE application per role. Never pass 'apply' without the " +
-        "candidate's explicit go-ahead.",
+        "`decision: 'apply'` submits the application; `decision: 'decline'` records a DECLINED entry that is still " +
+        "visible to the hiring team — TELL the candidate this before recording a decline. The fit fields are stored " +
+        "as the candidate's self-reported assessment. Requires a complete profile and a resume. A candidate may only " +
+        "have ONE application per role. Never pass 'apply' without the candidate's explicit go-ahead.",
       inputSchema: {
         posting_id: z.string().describe("The posting UUID (from target_position or browse_positions)"),
         decision: z.enum(["apply", "decline"]).describe("Whether the candidate chose to apply"),
@@ -88,7 +88,7 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
       if (!p) return errorResult(`No position found with id ${posting_id}.`);
       if (p.status !== "open") return errorResult(`Position "${p.title}" is not open.`);
 
-      const status = decision === "apply" ? "shortlisted" : "applied";
+      const status = decision === "apply" ? ("submitted" as const) : ("declined" as const);
 
       // Atomic one-application-per-role: the unique constraint decides, so two
       // concurrent calls can't race a check-then-insert.

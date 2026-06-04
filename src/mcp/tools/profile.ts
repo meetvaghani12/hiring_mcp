@@ -2,10 +2,10 @@ import { z } from "zod";
 import { desc, eq, sql } from "drizzle-orm";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "../../db/index.js";
-import { agentConfigs, applications, candidates, positions, resumes } from "../../db/schema.js";
+import { applications, candidates, positions, resumes } from "../../db/schema.js";
 import { config } from "../../config.js";
 import { computeReadiness } from "../../services/readiness.js";
-import { validateAgentConfig, validateResume } from "../../validation.js";
+import { validateResume } from "../../validation.js";
 import { jsonResult, errorResult, type ToolContext } from "../context.js";
 
 /** Build the get_my_profile response payload from current readiness. */
@@ -48,8 +48,6 @@ async function buildProfilePayload(candidateId: string) {
     token_expires_at: c.tokenExpiresAt?.toISOString() ?? null,
     target_position: targetPosition,
     resume: r.latestResume,
-    agent_config: r.latestAgentConfig?.content ?? null,
-    agent_config_version: r.latestAgentConfig?.version ?? null,
     applications_count: applicationsCount,
     phone: c.phone,
     email: c.email,
@@ -76,8 +74,8 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
         "The human you're helping arrived from a job posting and wants to apply. Behave like a thoughtful, warm, " +
         "respectful senior recruiter — guide them, don't interrogate them. Start here. Returns the candidate's state: " +
         "profile fields, resume (markdown), readiness, what's still missing, and `target_position` — the specific job " +
-        "they came to apply for (title + full JD). To be ready to apply they need a complete profile and a resume " +
-        "(CLAUDE.md and session logs are NOT required). " +
+        "they came to apply for (title + full JD). To be ready to apply they need a complete profile and a resume" +
+        (config.requireSessionLog ? ", plus an uploaded session log of this conversation. " : ". ") +
         "Recommended flow: read their resume, fill the profile with update_my_profile, then COMPARE their resume/profile " +
         "against the target_position's JD — present a clear fit assessment (what's a strong match, what's missing) and a " +
         "0–100 fit score. Then ask whether they want to apply, and call apply_to_position with that decision and your " +
@@ -206,9 +204,6 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
     },
   );
 
-  // NOTE: upload_agent_config and the session-log tools are intentionally NOT
-  // registered in the current flow — CLAUDE.md and session logs are no longer
-  // required to apply. The code remains in the repo to re-enable later.
 }
 
 /** Compact readiness block appended to upload responses. */

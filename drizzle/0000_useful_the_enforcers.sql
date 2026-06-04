@@ -1,26 +1,19 @@
 CREATE TYPE "public"."application_decision" AS ENUM('apply', 'decline');--> statement-breakpoint
-CREATE TYPE "public"."application_status" AS ENUM('applied', 'shortlisted', 'submitted', 'under_review', 'interviewing', 'rejected', 'hired');--> statement-breakpoint
+CREATE TYPE "public"."application_status" AS ENUM('submitted', 'declined', 'under_review', 'interviewing', 'rejected', 'hired');--> statement-breakpoint
 CREATE TYPE "public"."position_status" AS ENUM('open', 'closed');--> statement-breakpoint
 CREATE TYPE "public"."session_vendor" AS ENUM('claude_code', 'codex_cli');--> statement-breakpoint
 CREATE TYPE "public"."upload_status" AS ENUM('pending', 'confirmed');--> statement-breakpoint
-CREATE TABLE "agent_configs" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"candidate_id" uuid NOT NULL,
-	"content" text NOT NULL,
-	"version" integer NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
 CREATE TABLE "applications" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"candidate_id" uuid NOT NULL,
 	"position_id" uuid NOT NULL,
-	"status" "application_status" DEFAULT 'applied' NOT NULL,
+	"status" "application_status" DEFAULT 'submitted' NOT NULL,
 	"decision" "application_decision" DEFAULT 'apply' NOT NULL,
 	"fit_score" integer,
 	"fit_summary" text,
 	"fit_gaps" jsonb,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "uniq_candidate_position" UNIQUE("candidate_id","position_id")
 );
 --> statement-breakpoint
@@ -91,9 +84,9 @@ CREATE TABLE "session_log_uploads" (
 	"confirmed_at" timestamp with time zone
 );
 --> statement-breakpoint
-ALTER TABLE "agent_configs" ADD CONSTRAINT "agent_configs_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "applications" ADD CONSTRAINT "applications_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "applications" ADD CONSTRAINT "applications_position_id_positions_id_fk" FOREIGN KEY ("position_id") REFERENCES "public"."positions"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "candidates" ADD CONSTRAINT "candidates_target_position_id_positions_id_fk" FOREIGN KEY ("target_position_id") REFERENCES "public"."positions"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "resumes" ADD CONSTRAINT "resumes_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "session_log_uploads" ADD CONSTRAINT "session_log_uploads_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "session_log_uploads" ADD CONSTRAINT "session_log_uploads_candidate_id_candidates_id_fk" FOREIGN KEY ("candidate_id") REFERENCES "public"."candidates"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "candidates_email_idx" ON "candidates" USING btree ("email");

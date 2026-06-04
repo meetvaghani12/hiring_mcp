@@ -345,7 +345,7 @@ export function applyPage(
     : `Almost there — ask your <a href="/mcp">agent</a> to complete the items above. Missing: ${escapeHtml(r.missing.join(", "))}.`;
 
   const appCard = (a: CandidateApplication) => {
-    const score = a.fit_score != null ? `<span class="badge">fit ${a.fit_score}/100</span>` : "";
+    const score = a.fit_score != null ? `<span class="badge">self-assessed fit ${a.fit_score}/100</span>` : "";
     const gaps =
       a.fit_gaps && a.fit_gaps.length
         ? `<div class="fl" style="margin-top:14px">gaps to address</div><ul>${a.fit_gaps
@@ -354,7 +354,7 @@ export function applyPage(
         : "";
     return `<div class="card">
       <div class="pos"><h3 style="margin:0">${escapeHtml(a.title)}</h3>
-        <span class="badge">${escapeHtml(a.status)}</span></div>
+        <span class="badge">${escapeHtml(a.status.replace(/_/g, " "))}</span></div>
       <div style="margin-top:8px">${score}</div>
       ${a.fit_summary ? `<div class="fl" style="margin-top:14px">fit summary</div><div>${escapeHtml(a.fit_summary)}</div>` : ""}
       ${gaps}
@@ -372,6 +372,7 @@ export function applyPage(
   ${targetBlock}
   ${item(profileOk, "Profile")}
   ${item(r.hasResume, "Resume")}
+  ${r.sessionLogRequired ? item(r.hasSessionLog, "Session log") : ""}
   <p class="muted" style="margin-top:28px">${msg}</p>
   ${appsBlock}`;
   return layout({ active: "apply", body });
@@ -381,7 +382,6 @@ export function profilePage(data: {
   candidate: Candidate;
   readiness: Readiness;
   applicationsCount: number;
-  agentConfigVersion: number | null;
   resumeMarkdown: string | null;
 }): string {
   const c = data.candidate;

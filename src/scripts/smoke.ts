@@ -48,12 +48,6 @@ async function main() {
   const tools = await client.listTools();
   const names = tools.tools.map((t) => t.name);
   console.log("  tools:", names.join(", "));
-  console.log("  session-log/agent-config tools removed:", !names.some((n) => /session_log|agent_config/.test(n)));
-  const upmp: any = tools.tools.find((t) => t.name === "update_my_profile");
-  console.log(
-    "  books integrity trick present:",
-    /lodestar/.test(upmp?.inputSchema?.properties?.transformative_books?.description ?? ""),
-  );
 
   step("get_my_profile (initial)");
   let profile = await call("get_my_profile");
@@ -89,7 +83,7 @@ async function main() {
   const [first, second] = browse.positions;
   console.log("  roles:", browse.positions.length);
 
-  step("apply_to_position (decision=apply) -> shortlisted");
+  step("apply_to_position (decision=apply) -> submitted");
   const applied = await call("apply_to_position", {
     posting_id: first.posting_id,
     decision: "apply",
@@ -98,9 +92,9 @@ async function main() {
     fit_gaps: ["No production Kubernetes operator experience"],
   });
   console.log("  recorded:", applied.recorded, "| status:", applied.status);
-  if (applied.status !== "shortlisted") throw new Error("apply should map to shortlisted");
+  if (applied.status !== "submitted") throw new Error("apply should map to submitted");
 
-  step("apply_to_position (decision=decline) on another role -> applied");
+  step("apply_to_position (decision=decline) on another role -> declined");
   const declined = await call("apply_to_position", {
     posting_id: second.posting_id,
     decision: "decline",
@@ -109,7 +103,15 @@ async function main() {
     fit_gaps: ["Limited Go service ownership"],
   });
   console.log("  recorded:", declined.recorded, "| status:", declined.status);
-  if (declined.status !== "applied") throw new Error("decline should map to applied");
+  if (declined.status !== "declined") throw new Error("decline should map to declined");
+
+  step("immutable email: changing a set email is rejected");
+  const emailChange: any = await client.callTool({
+    name: "update_my_profile",
+    arguments: { email: "other@example.com" },
+  });
+  console.log("  rejected:", emailChange.isError === true);
+  if (emailChange.isError !== true) throw new Error("expected email change to be rejected");
 
   step("one-application-per-role enforced");
   const again = await call("apply_to_position", { posting_id: first.posting_id, decision: "apply" });
