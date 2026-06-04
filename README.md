@@ -89,6 +89,23 @@ Both keep a secret-redaction safety net: the agent pauses only if it finds sensi
 it can't safely redact. To restore RealFast's explicit "confirm before sending" gate,
 re-add that instruction to the descriptions in `src/mcp/tools/`.
 
+## The apply flow (job-link → SSO → compare → apply)
+
+1. Company careers site links "Apply now" → **`/jobs/:jobId/apply`** (`jobId` = `external_job_id` slug or our uuid).
+2. Not signed in → the job is remembered and the candidate is sent to **LinkedIn SSO**.
+3. After sign-in the job is bound to the candidate (`target_position_id`) and shown on `/mcp` + `/apply`.
+4. Candidate connects their agent. To apply they need only a **complete profile + resume**
+   (CLAUDE.md and session logs are no longer required).
+5. The agent reads `get_my_profile` (which includes `target_position` + its JD), fills the profile,
+   then **compares the resume to the JD** — presenting strong matches, gaps, and a 0–100 fit score.
+6. The candidate decides; the agent calls `apply_to_position` with `decision` + the comparison:
+   - `decision: "apply"` → status **`shortlisted`**
+   - `decision: "decline"` → status **`applied`** (data still reaches the hiring team)
+   - fit score / summary / gaps are persisted on the application (visible in the admin list)
+   - **one application per role** per candidate.
+
+Try the whole thing locally: open **`/jobs/ai-agent-engineer/apply`** (mock SSO is on by default).
+
 ## Candidate sign-in (LinkedIn SSO)
 
 Candidates sign in with **LinkedIn** (OpenID Connect) — self-service, no admin minting:

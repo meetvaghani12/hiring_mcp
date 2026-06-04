@@ -10,11 +10,14 @@ import { computeReadiness } from "../services/readiness.js";
 import {
   checkOAuthState,
   clearSessionCookie,
+  currentCandidateId,
   requireWebAuth,
   setFlashToken,
   setOAuthState,
+  setPendingJob,
   setSessionCookie,
   takeFlashToken,
+  takePendingJob,
 } from "./session.js";
 import { applyPage, loginPage, mcpPage, mockLinkedInPage, profilePage, wikiPage } from "./views.js";
 
@@ -29,8 +32,47 @@ const wrap =
     });
   };
 
+/** Resolve a job id from an apply link — by external_job_id first, then internal uuid. */
+async function resolvePosition(jobId: string) {
+  const [byExternal] = await db.select().from(positions).where(eq(positions.externalJobId, jobId)).limit(1);
+  if (byExternal) return byExternal;
+  const [byId] = await db.select().from(positions).where(eq(positions.id, jobId)).limit(1);
+  return byId ?? null;
+}
+
+/** After SSO, bind the pending target job (if any) to the candidate. */
+async function bindPendingJob(req: Request, res: Response, candidateId: string) {
+  const jobId = takePendingJob(req, res);
+  if (!jobId) return;
+  const position = await resolvePosition(jobId);
+  if (position) {
+    await db.update(candidates).set({ targetPositionId: position.id }).where(eq(candidates.id, candidateId));
+  }
+}
+
 export function registerWebRoutes(app: Express) {
   app.get("/", (_req, res) => res.redirect("/profile"));
+
+  // ── Job-link entry: company "Apply now" → /jobs/:jobId/apply ──
+  app.get(
+    "/jobs/:jobId/apply",
+    wrap(async (req, res) => {
+      const jobId = req.params.jobId;
+      const candidateId = currentCandidateId(req);
+      if (candidateId) {
+        // Already signed in — bind the target job and go straight to the checklist.
+        const position = await resolvePosition(jobId);
+        if (position) {
+          await db.update(candidates).set({ targetPositionId: position.id }).where(eq(candidates.id, candidateId));
+        }
+        res.redirect("/apply");
+        return;
+      }
+      // Not signed in — remember the job through the LinkedIn round-trip.
+      setPendingJob(res, jobId);
+      res.redirect("/auth/linkedin");
+    }),
+  );
 
   // ── Auth ──────────────────────────────────────────────
   app.get("/login", (_req, res) => res.type("html").send(loginPage()));
@@ -89,6 +131,7 @@ export function registerWebRoutes(app: Express) {
       const { candidate, freshToken } = await findOrCreateFromLinkedIn(user);
       setSessionCookie(res, candidate.id);
       if (freshToken) setFlashToken(res, freshToken);
+      await bindPendingJob(req, res, candidate.id);
       res.redirect("/mcp");
     }),
   );
@@ -115,6 +158,7 @@ export function registerWebRoutes(app: Express) {
       });
       setSessionCookie(res, candidate.id);
       if (freshToken) setFlashToken(res, freshToken);
+      await bindPendingJob(req, res, candidate.id);
       res.redirect("/mcp");
     }),
   );
@@ -127,11 +171,17 @@ export function registerWebRoutes(app: Express) {
       const id = (req as AuthedReq).candidateId;
       const [c] = await db.select().from(candidates).where(eq(candidates.id, id)).limit(1);
       const fresh = takeFlashToken(req, res); // shown once right after SSO signup
+      let targetTitle: string | null = null;
+      if (c?.targetPositionId) {
+        const [tp] = await db.select().from(positions).where(eq(positions.id, c.targetPositionId)).limit(1);
+        targetTitle = tp?.title ?? null;
+      }
       res.type("html").send(
         mcpPage({
           tokenHint: c?.tokenHint ?? null,
           tokenExpiresAt: c?.tokenExpiresAt ?? null,
           freshToken: fresh ?? undefined,
+          targetTitle,
         }),
       );
     }),
@@ -167,7 +217,30 @@ export function registerWebRoutes(app: Express) {
     wrap(async (req, res) => {
       const id = (req as AuthedReq).candidateId;
       const readiness = await computeReadiness(id);
-      res.type("html").send(applyPage(readiness));
+      let target: { title: string; description: string } | null = null;
+      if (readiness.candidate.targetPositionId) {
+        const [tp] = await db
+          .select()
+          .from(positions)
+          .where(eq(positions.id, readiness.candidate.targetPositionId))
+          .limit(1);
+        if (tp) target = { title: tp.title, description: tp.description };
+      }
+      const apps = await db
+        .select({
+          title: positions.title,
+          status: applications.status,
+          decision: applications.decision,
+          fit_score: applications.fitScore,
+          fit_summary: applications.fitSummary,
+          fit_gaps: applications.fitGaps,
+          created_at: applications.createdAt,
+        })
+        .from(applications)
+        .innerJoin(positions, eq(applications.positionId, positions.id))
+        .where(eq(applications.candidateId, id))
+        .orderBy(desc(applications.createdAt));
+      res.type("html").send(applyPage(readiness, target, apps));
     }),
   );
 

@@ -42,6 +42,11 @@ export function clearSessionCookie(res: Response) {
   res.clearCookie(COOKIE, { path: "/" });
 }
 
+/** Read the current candidate id from the session cookie without redirecting. */
+export function currentCandidateId(req: Request): string | null {
+  return verifySession(req.cookies?.[COOKIE]);
+}
+
 // ── One-time flash for a freshly minted token (survives the SSO redirect) ──
 const FLASH = "hm_flash";
 export function setFlashToken(res: Response, token: string) {
@@ -50,6 +55,28 @@ export function setFlashToken(res: Response, token: string) {
 export function takeFlashToken(req: Request, res: Response): string | null {
   const v = req.cookies?.[FLASH] as string | undefined;
   res.clearCookie(FLASH, { path: "/" });
+  if (!v) return null;
+  const dot = v.lastIndexOf(".");
+  if (dot <= 0) return null;
+  const val = v.slice(0, dot);
+  const mac = Buffer.from(v.slice(dot + 1));
+  const exp = Buffer.from(sign(val));
+  return mac.length === exp.length && timingSafeEqual(mac, exp) ? val : null;
+}
+
+// ── Pending target job (survives the SSO redirect) ──
+const PENDING = "hm_pending_job";
+export function setPendingJob(res: Response, positionId: string) {
+  res.cookie(PENDING, `${positionId}.${sign(positionId)}`, {
+    httpOnly: true,
+    sameSite: "lax",
+    path: "/",
+    maxAge: 600_000,
+  });
+}
+export function takePendingJob(req: Request, res: Response): string | null {
+  const v = req.cookies?.[PENDING] as string | undefined;
+  res.clearCookie(PENDING, { path: "/" });
   if (!v) return null;
   const dot = v.lastIndexOf(".");
   if (dot <= 0) return null;

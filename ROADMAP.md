@@ -37,6 +37,18 @@ Migration: `drizzle/0002_*`.
 
 ---
 
+## Job-link apply flow ✅ COMPLETE
+The candidate-facing flow you specified (company "Apply now" → SSO → compare → apply/decline).
+- [x] Entry `GET /jobs/:jobId/apply` (resolves `external_job_id` or uuid), job carried through SSO
+- [x] After SSO, `target_position_id` bound to the candidate; surfaced in `get_my_profile`, `/mcp`, `/apply`
+- [x] Gate relaxed to **profile + resume** (CLAUDE.md + session log dropped from tools & gating)
+- [x] `apply_to_position(decision, fit_score, fit_summary, fit_gaps)` — agent compares JD↔resume, then:
+      `apply → shortlisted`, `decline → applied` (data sent either way); **one application per role**
+- [x] Fit comparison shown to candidate AND persisted on the application (admin list includes it)
+- [x] Post-install "Once connected" instructions on `/mcp`; JD shown on `/apply`
+- [x] JD is hardcoded in `positions.description` for now (external JD source = future)
+- Verified: smoke test (apply→shortlisted, decline→applied, one-per-role) + job-link→SSO→target binding.
+
 ## P1 — Recruiter side (the missing half)
 - [ ] **P1.1** Recruiter web UI over the existing admin API
       - [ ] Candidate list

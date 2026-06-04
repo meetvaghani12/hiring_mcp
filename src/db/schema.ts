@@ -8,17 +8,22 @@ import {
   timestamp,
   pgEnum,
   jsonb,
+  unique,
 } from "drizzle-orm/pg-core";
 
 export const uploadStatus = pgEnum("upload_status", ["pending", "confirmed"]);
 export const positionStatus = pgEnum("position_status", ["open", "closed"]);
 export const applicationStatus = pgEnum("application_status", [
+  "applied", // candidate signed in + compared but chose NOT to apply (data still sent)
+  "shortlisted", // candidate actively chose to apply
   "submitted",
   "under_review",
   "interviewing",
   "rejected",
   "hired",
 ]);
+// Whether the candidate chose to apply after seeing the fit comparison.
+export const applicationDecision = pgEnum("application_decision", ["apply", "decline"]);
 export const sessionVendor = pgEnum("session_vendor", ["claude_code", "codex_cli"]);
 
 /** A candidate is identified by the Bearer token they connect with. */
@@ -37,6 +42,11 @@ export const candidates = pgTable("candidates", {
   linkedinSub: text("linkedin_sub").unique(),
   pictureUrl: text("picture_url"),
   emailVerified: boolean("email_verified").notNull().default(false),
+
+  // The job the candidate arrived to apply for (from the company "Apply now" link).
+  targetPositionId: uuid("target_position_id").references((): any => positions.id, {
+    onDelete: "set null",
+  }),
 
   // Profile fields (mirror the RealFast update_my_profile surface).
   name: text("name"),
@@ -109,21 +119,32 @@ export const positions = pgTable("positions", {
   location: text("location"),
   description: text("description").notNull(),
   status: positionStatus("status").notNull().default("open"),
+  // The id the company "Apply now" link carries (external/ATS id or slug).
+  externalJobId: text("external_job_id").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** A candidate's application to a position. */
-export const applications = pgTable("applications", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  candidateId: uuid("candidate_id")
-    .notNull()
-    .references(() => candidates.id, { onDelete: "cascade" }),
-  positionId: uuid("position_id")
-    .notNull()
-    .references(() => positions.id, { onDelete: "cascade" }),
-  status: applicationStatus("status").notNull().default("submitted"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+/** A candidate's application to a position — one per (candidate, position). */
+export const applications = pgTable(
+  "applications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    candidateId: uuid("candidate_id")
+      .notNull()
+      .references(() => candidates.id, { onDelete: "cascade" }),
+    positionId: uuid("position_id")
+      .notNull()
+      .references(() => positions.id, { onDelete: "cascade" }),
+    status: applicationStatus("status").notNull().default("applied"),
+    decision: applicationDecision("decision").notNull().default("apply"),
+    // JD ↔ resume fit comparison (computed by the candidate's agent).
+    fitScore: integer("fit_score"),
+    fitSummary: text("fit_summary"),
+    fitGaps: jsonb("fit_gaps").$type<string[]>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({ uniqCandidatePosition: unique("uniq_candidate_position").on(t.candidateId, t.positionId) }),
+);
 
 export type Candidate = typeof candidates.$inferSelect;
 export type Position = typeof positions.$inferSelect;

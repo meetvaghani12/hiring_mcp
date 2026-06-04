@@ -5,29 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1780503790229,
-      "tag": "0000_noisy_omega_red",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1780505092999,
-      "tag": "0001_daily_weapon_omega",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1780550247145,
-      "tag": "0002_premium_the_hunter",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1780565900451,
-      "tag": "0003_cultured_the_captain",
+      "when": 1780569602538,
+      "tag": "0000_overconfident_mariko_yashida",
       "breakpoints": true
     }
   ]

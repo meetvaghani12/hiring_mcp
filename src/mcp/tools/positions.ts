@@ -58,12 +58,22 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
     "apply_to_position",
     {
       description:
-        "Puts the candidate forward for a position. Requires a complete profile, an uploaded resume, and their " +
-        "agent config (and a session log if required). If not application_ready, the response explains what's missing. " +
-        "Never submit without the candidate's explicit go-ahead.",
-      inputSchema: { posting_id: z.string().describe("The posting UUID from browse_positions") },
+        "Records the candidate's decision on a position AFTER you've shown them a JD↔resume fit comparison. " +
+        "First compare their resume/profile against the job description, present the fit (strong matches + gaps) and a " +
+        "0–100 fit_score, then ask whether they want to apply. Call this with their decision and your comparison. " +
+        "`decision: 'apply'` records the application as SHORTLISTED; `decision: 'decline'` still records it (as APPLIED) " +
+        "so the recruiter sees the candidate and the fit — the candidate's data is sent either way. Requires a complete " +
+        "profile and a resume. A candidate may only have ONE application per role. Never pass 'apply' without the " +
+        "candidate's explicit go-ahead.",
+      inputSchema: {
+        posting_id: z.string().describe("The posting UUID (from target_position or browse_positions)"),
+        decision: z.enum(["apply", "decline"]).describe("Whether the candidate chose to apply"),
+        fit_score: z.number().min(0).max(100).optional().describe("0–100 fit score from your JD↔resume comparison"),
+        fit_summary: z.string().optional().describe("Short summary of how well the candidate fits the role"),
+        fit_gaps: z.array(z.string()).optional().describe("Specific gaps / missing qualifications"),
+      },
     },
-    async ({ posting_id }) => {
+    async ({ posting_id, decision, fit_score, fit_summary, fit_gaps }) => {
       const r = await computeReadiness(ctx.candidateId);
       if (!r.applicationReady)
         return errorResult(
@@ -75,20 +85,37 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
       if (!p) return errorResult(`No position found with id ${posting_id}.`);
       if (p.status !== "open") return errorResult(`Position "${p.title}" is not open.`);
 
+      const status = decision === "apply" ? "shortlisted" : "applied";
+
       const [existing] = await db
         .select()
         .from(applications)
         .where(and(eq(applications.candidateId, ctx.candidateId), eq(applications.positionId, posting_id)))
         .limit(1);
       if (existing)
-        return jsonResult({ applied: true, already: true, application_id: existing.id, status: existing.status });
+        return jsonResult({
+          recorded: true,
+          already: true,
+          application_id: existing.id,
+          status: existing.status,
+          note: "You've already applied to this role — only one application per role is allowed.",
+        });
 
       const [app] = await db
         .insert(applications)
-        .values({ candidateId: ctx.candidateId, positionId: posting_id })
+        .values({
+          candidateId: ctx.candidateId,
+          positionId: posting_id,
+          decision,
+          status,
+          fitScore: fit_score,
+          fitSummary: fit_summary,
+          fitGaps: fit_gaps,
+        })
         .returning();
       return jsonResult({
-        applied: true,
+        recorded: true,
+        decision,
         application_id: app.id,
         position: { posting_id: p.id, title: p.title },
         status: app.status,
