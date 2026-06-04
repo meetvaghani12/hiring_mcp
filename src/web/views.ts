@@ -230,9 +230,9 @@ export function mockLinkedInPage(): string {
   <p class="muted">LINKEDIN_MOCK is on, so no real LinkedIn app is needed. Enter an identity to simulate the OIDC userinfo response and run the full signup flow.</p>
   <form method="post" action="/auth/linkedin/mock" class="box">
     <div class="field" style="margin:0 0 16px"><div class="fl">name</div>
-      <input class="input" name="name" value="Meet Vaghani"></div>
+      <input class="input" name="name" placeholder="Ada Lovelace"></div>
     <div class="field" style="margin:0 0 16px"><div class="fl">email</div>
-      <input class="input" name="email" value="meetvaghani1239@gmail.com"></div>
+      <input class="input" name="email" placeholder="ada@example.com" required></div>
     <button class="btn linkedin" type="submit"><span class="in">in</span> Continue as this user</button>
   </form>`;
   return layout({ active: "", body, authed: false });
