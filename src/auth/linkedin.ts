@@ -61,37 +61,64 @@ export async function userinfoFromCode(code: string): Promise<LinkedInUser> {
   return fetchUserinfo(await exchangeCode(code));
 }
 
+export type LinkPlan = "use_sub_match" | "link_email_match" | "create_new";
+
 /**
- * Find-or-create a candidate from a verified LinkedIn identity, returning the
- * candidate and a fresh raw token IF one was just minted (new account or the
- * existing token had expired). For returning users with a live token, freshToken
- * is null — they keep their current token and can reissue from /mcp.
+ * Decide how an incoming LinkedIn identity maps onto existing candidates.
+ * Pure — all the security reasoning lives here, where it can be unit-tested.
+ *
+ * Email-match linking is only allowed when:
+ *  - the OIDC claim says the email is verified (`email_verified === true`), AND
+ *  - the existing row has never been linked to a LinkedIn identity.
+ *
+ * This is safe only because candidate email is an IDENTITY field: it is set
+ * by the admin at mint time or by SSO, and `update_my_profile` refuses to
+ * change a non-empty email. Without that invariant a candidate could set
+ * their profile email to victim@example.com and capture the victim's account
+ * on first SSO sign-in. If email ever becomes freely editable again, this
+ * linking branch must be removed.
+ */
+export function planLink(
+  bySub: Pick<Candidate, "id"> | undefined,
+  byEmail: Pick<Candidate, "id" | "linkedinSub"> | undefined,
+  user: LinkedInUser,
+): LinkPlan {
+  if (bySub) return "use_sub_match";
+  if (byEmail && !byEmail.linkedinSub && user.email_verified === true) return "link_email_match";
+  return "create_new";
+}
+
+/**
+ * Find-or-create a candidate from a LinkedIn identity, returning the candidate
+ * and a fresh raw token IF one was just minted (new account or the existing
+ * token had expired). For returning users with a live token, freshToken is
+ * null — they keep their current token and can reissue from /mcp.
  */
 export async function findOrCreateFromLinkedIn(
   user: LinkedInUser,
 ): Promise<{ candidate: Candidate; freshToken: string | null }> {
-  // 1. Match by LinkedIn sub.
-  let [candidate] = await db.select().from(candidates).where(eq(candidates.linkedinSub, user.sub)).limit(1);
+  const [bySub] = await db.select().from(candidates).where(eq(candidates.linkedinSub, user.sub)).limit(1);
+  const [byEmail] = user.email
+    ? await db.select().from(candidates).where(eq(candidates.email, user.email)).limit(1)
+    : [undefined];
 
-  // 2. Else link an existing candidate with the same email.
-  if (!candidate && user.email) {
-    const [byEmail] = await db.select().from(candidates).where(eq(candidates.email, user.email)).limit(1);
-    if (byEmail) {
-      [candidate] = await db
-        .update(candidates)
-        .set({
-          linkedinSub: user.sub,
-          pictureUrl: user.picture ?? byEmail.pictureUrl,
-          emailVerified: user.email_verified ?? byEmail.emailVerified,
-          name: byEmail.name ?? user.name,
-        })
-        .where(eq(candidates.id, byEmail.id))
-        .returning();
-    }
-  }
+  const plan = planLink(bySub, byEmail, user);
 
-  // 3. Else create a brand-new candidate with a fresh token.
-  if (!candidate) {
+  let candidate: Candidate;
+  if (plan === "use_sub_match") {
+    candidate = bySub!;
+  } else if (plan === "link_email_match") {
+    [candidate] = await db
+      .update(candidates)
+      .set({
+        linkedinSub: user.sub,
+        pictureUrl: user.picture ?? byEmail!.pictureUrl,
+        emailVerified: true,
+        name: byEmail!.name ?? user.name,
+      })
+      .where(eq(candidates.id, byEmail!.id))
+      .returning();
+  } else {
     const t = newToken();
     [candidate] = await db
       .insert(candidates)

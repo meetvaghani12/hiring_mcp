@@ -2,11 +2,17 @@ import { z } from "zod";
 import { desc, eq, sql } from "drizzle-orm";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { db } from "../../db/index.js";
-import { agentConfigs, applications, candidates, positions, resumes } from "../../db/schema.js";
+import { applications, candidates, positions, resumes } from "../../db/schema.js";
 import { config } from "../../config.js";
 import { computeReadiness } from "../../services/readiness.js";
-import { validateAgentConfig, validateResume } from "../../validation.js";
+import { validateResume } from "../../validation.js";
 import { jsonResult, errorResult, type ToolContext } from "../context.js";
+
+// Candidate-supplied links are rendered as <a href> (candidate profile today,
+// recruiter console too) — only http(s) may ever land there. Blank clears.
+const httpUrl = z.string().refine((v) => v === "" || /^https?:\/\//i.test(v), {
+  message: "must be an http(s):// URL",
+});
 
 /** Build the get_my_profile response payload from current readiness. */
 async function buildProfilePayload(candidateId: string) {
@@ -48,8 +54,6 @@ async function buildProfilePayload(candidateId: string) {
     token_expires_at: c.tokenExpiresAt?.toISOString() ?? null,
     target_position: targetPosition,
     resume: r.latestResume,
-    agent_config: r.latestAgentConfig?.content ?? null,
-    agent_config_version: r.latestAgentConfig?.version ?? null,
     applications_count: applicationsCount,
     phone: c.phone,
     email: c.email,
@@ -76,8 +80,8 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
         "The human you're helping arrived from a job posting and wants to apply. Behave like a thoughtful, warm, " +
         "respectful senior recruiter — guide them, don't interrogate them. Start here. Returns the candidate's state: " +
         "profile fields, resume (markdown), readiness, what's still missing, and `target_position` — the specific job " +
-        "they came to apply for (title + full JD). To be ready to apply they need a complete profile and a resume " +
-        "(CLAUDE.md and session logs are NOT required). " +
+        "they came to apply for (title + full JD). To be ready to apply they need a complete profile and a resume" +
+        (config.requireSessionLog ? ", plus an uploaded session log of this conversation. " : ". ") +
         "Recommended flow: read their resume, fill the profile with update_my_profile, then COMPARE their resume/profile " +
         "against the target_position's JD — present a clear fit assessment (what's a strong match, what's missing) and a " +
         "0–100 fit score. Then ask whether they want to apply, and call apply_to_position with that decision and your " +
@@ -93,15 +97,16 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
       description:
         "Updates the candidate's profile. Send only the fields to change; omitted fields stay as they are; " +
         "a blank string clears a field. Confirm each field with the candidate before submitting — don't assume. " +
-        "The summary and transformative_books are the candidate's own voice — never auto-generate them.",
+        "The summary and transformative_books are the candidate's own voice — never auto-generate them. " +
+        "Note: email is an identity field — it can be set once if empty but never changed afterwards.",
       inputSchema: {
         phone: z.string().optional(),
-        email: z.string().optional(),
-        linkedin_url: z.string().optional(),
-        github_url: z.string().optional(),
+        email: z.string().email().optional(),
+        linkedin_url: httpUrl.optional(),
+        github_url: httpUrl.optional(),
         current_title: z.string().optional(),
         current_company: z.string().optional(),
-        company_website: z.string().optional(),
+        company_website: httpUrl.optional(),
         location: z.string().optional(),
         years_of_experience: z.number().optional(),
         preferred_working_style: z.string().optional(),
@@ -130,6 +135,22 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
       },
     },
     async (args) => {
+      // Email is an identity field (used for SSO account linking): allow
+      // setting it once if empty, refuse changes afterwards.
+      if (args.email !== undefined) {
+        const [current] = await db
+          .select({ email: candidates.email })
+          .from(candidates)
+          .where(eq(candidates.id, ctx.candidateId))
+          .limit(1);
+        if (current?.email && current.email !== args.email) {
+          return errorResult(
+            "Email can't be changed once set — it identifies the account for sign-in. " +
+              "Contact the hiring team if it needs correcting.",
+          );
+        }
+      }
+
       const patch: Record<string, unknown> = {
         updatedAt: new Date(),
         profileVersion: sql`${candidates.profileVersion} + 1`,
@@ -183,15 +204,12 @@ export function registerProfileTools(server: McpServer, ctx: ToolContext) {
       return jsonResult({
         saved: true,
         version,
-        url: `${config.publicBaseUrl}/resume`,
+        url: `${config.publicBaseUrl}/profile`, // resume renders on the profile page
         ...(await readinessSummary(ctx.candidateId)),
       });
     },
   );
 
-  // NOTE: upload_agent_config and the session-log tools are intentionally NOT
-  // registered in the current flow — CLAUDE.md and session logs are no longer
-  // required to apply. The code remains in the repo to re-enable later.
 }
 
 /** Compact readiness block appended to upload responses. */

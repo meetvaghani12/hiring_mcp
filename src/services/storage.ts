@@ -45,8 +45,14 @@ export async function headObject(
   try {
     const r = await s3.send(new HeadObjectCommand({ Bucket: config.s3.bucket, Key: key }));
     return { exists: true, size: r.ContentLength, contentType: r.ContentType };
-  } catch {
-    return { exists: false };
+  } catch (err) {
+    // Only a genuine 404 means "not uploaded". Credential/network failures
+    // must surface as errors, not get blamed on the candidate's PUT.
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+    if (e.name === "NotFound" || e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
+      return { exists: false };
+    }
+    throw err;
   }
 }
 

@@ -16,10 +16,38 @@ function bool(name: string, fallback: boolean): boolean {
   return v === "true" || v === "1";
 }
 
-const publicBaseUrl = optional("PUBLIC_BASE_URL", "http://localhost:8080");
+const isProduction = process.env.NODE_ENV === "production";
+const publicBaseUrl = optional("PUBLIC_BASE_URL", "http://localhost:8787");
+
+// Known-weak placeholder values that must never reach production.
+const WEAK_SECRETS = new Set([
+  "change-me-admin-token",
+  "change-me-session-secret",
+  "dev-insecure-session-secret-change-me",
+]);
+
+function secret(name: string, devFallback?: string): string {
+  const v = process.env[name] ?? devFallback;
+  if (!v) throw new Error(`Missing required env var: ${name}`);
+  if (isProduction && (WEAK_SECRETS.has(v) || v.length < 16)) {
+    throw new Error(
+      `${name} is a default/weak value. Set a strong (>=16 char) secret before running in production.`,
+    );
+  }
+  return v;
+}
+
+// Mock SSO is an explicit, non-production opt-in. It must never be derived
+// from the *absence* of configuration — a missing LINKEDIN_CLIENT_ID in prod
+// would otherwise silently turn the login page into an account-takeover form.
+const linkedinMock = bool("LINKEDIN_MOCK", false);
+if (linkedinMock && isProduction) {
+  throw new Error("LINKEDIN_MOCK=true is not allowed when NODE_ENV=production.");
+}
 
 export const config = {
-  port: Number(optional("PORT", "8080")),
+  isProduction,
+  port: Number(optional("PORT", "8787")),
   publicBaseUrl,
 
   databaseUrl: required("DATABASE_URL"),
@@ -33,23 +61,27 @@ export const config = {
     forcePathStyle: bool("S3_FORCE_PATH_STYLE", true),
   },
 
-  adminToken: required("ADMIN_TOKEN"),
+  adminToken: secret("ADMIN_TOKEN"),
 
   // Secret used to sign web session cookies.
-  sessionSecret: optional("SESSION_SECRET", "dev-insecure-session-secret-change-me"),
+  sessionSecret: secret("SESSION_SECRET", "dev-insecure-session-secret-change-me"),
 
   // How long a freshly minted/reissued candidate token stays valid.
   tokenTtlDays: Number(optional("TOKEN_TTL_DAYS", "90")),
 
-  requireSessionLog: bool("REQUIRE_SESSION_LOG", true),
+  // When true, a confirmed session-log upload is required to apply and the
+  // session-log MCP tools are registered. Off by default in the job-link flow.
+  requireSessionLog: bool("REQUIRE_SESSION_LOG", false),
+
+  // Optional webhook POSTed whenever a new application is recorded.
+  applicationWebhookUrl: process.env.APPLICATION_WEBHOOK_URL || "",
 
   linkedin: {
     clientId: process.env.LINKEDIN_CLIENT_ID || "",
     clientSecret: process.env.LINKEDIN_CLIENT_SECRET || "",
     redirectUri: optional("LINKEDIN_REDIRECT_URI", `${publicBaseUrl}/auth/linkedin/callback`),
-    // Mock mode lets you exercise the full SSO flow locally without a LinkedIn app.
-    // Defaults to ON whenever no real client id is configured.
-    mock: bool("LINKEDIN_MOCK", !process.env.LINKEDIN_CLIENT_ID),
+    // Dev-only mock of the OIDC flow. Explicit opt-in, refused in production.
+    mock: linkedinMock,
   },
 } as const;
 

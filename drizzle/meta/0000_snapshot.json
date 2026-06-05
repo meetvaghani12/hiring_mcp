@@ -1,68 +1,9 @@
 {
-  "id": "efcc61aa-768a-4fd1-bea8-0964159e0f5b",
+  "id": "35284995-3993-485b-abcf-bb483441703d",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
-    "public.agent_configs": {
-      "name": "agent_configs",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "candidate_id": {
-          "name": "candidate_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "content": {
-          "name": "content",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "version": {
-          "name": "version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "agent_configs_candidate_id_candidates_id_fk": {
-          "name": "agent_configs_candidate_id_candidates_id_fk",
-          "tableFrom": "agent_configs",
-          "tableTo": "candidates",
-          "columnsFrom": [
-            "candidate_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.applications": {
       "name": "applications",
       "schema": "",
@@ -92,7 +33,7 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "default": "'applied'"
+          "default": "'submitted'"
         },
         "decision": {
           "name": "decision",
@@ -122,6 +63,13 @@
         },
         "created_at": {
           "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -338,7 +286,23 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "candidates_email_idx": {
+          "name": "candidates_email_idx",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "candidates_target_position_id_positions_id_fk": {
           "name": "candidates_target_position_id_positions_id_fk",
@@ -631,9 +595,8 @@
       "name": "application_status",
       "schema": "public",
       "values": [
-        "applied",
-        "shortlisted",
         "submitted",
+        "declined",
         "under_review",
         "interviewing",
         "rejected",

@@ -1,13 +1,13 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { agentConfigs, applications, candidates, positions, resumes, sessionLogUploads } from "../db/schema.js";
+import { applications, candidates, positions, resumes, sessionLogUploads } from "../db/schema.js";
 import { config } from "../config.js";
-import { bearerFromHeader, createCandidate } from "../auth.js";
+import { bearerFromHeader, createCandidate, safeEqual } from "../auth.js";
 
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const token = bearerFromHeader(req.headers.authorization);
-  if (token !== config.adminToken) {
+  if (!token || !safeEqual(token, config.adminToken)) {
     res.status(401).json({ error: "Invalid admin token" });
     return;
   }
@@ -71,18 +71,12 @@ export function registerAdminRoutes(app: Express) {
         .where(eq(resumes.candidateId, id))
         .orderBy(desc(resumes.version))
         .limit(1);
-      const [agentConfig] = await db
-        .select()
-        .from(agentConfigs)
-        .where(eq(agentConfigs.candidateId, id))
-        .orderBy(desc(agentConfigs.version))
-        .limit(1);
       const logs = await db
         .select()
         .from(sessionLogUploads)
         .where(eq(sessionLogUploads.candidateId, id))
         .orderBy(desc(sessionLogUploads.createdAt));
-      res.json({ candidate, resume: resume ?? null, agent_config: agentConfig ?? null, session_logs: logs });
+      res.json({ candidate, resume: resume ?? null, session_logs: logs });
     }),
   );
 

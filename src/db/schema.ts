@@ -9,14 +9,19 @@ import {
   pgEnum,
   jsonb,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 
 export const uploadStatus = pgEnum("upload_status", ["pending", "confirmed"]);
 export const positionStatus = pgEnum("position_status", ["open", "closed"]);
+/**
+ * Application pipeline. The candidate's decision sets the entry point —
+ * `submitted` (chose to apply) or `declined` (saw the fit, chose not to).
+ * Everything after `submitted` is recruiter-owned.
+ */
 export const applicationStatus = pgEnum("application_status", [
-  "applied", // candidate signed in + compared but chose NOT to apply (data still sent)
-  "shortlisted", // candidate actively chose to apply
   "submitted",
+  "declined",
   "under_review",
   "interviewing",
   "rejected",
@@ -27,7 +32,9 @@ export const applicationDecision = pgEnum("application_decision", ["apply", "dec
 export const sessionVendor = pgEnum("session_vendor", ["claude_code", "codex_cli"]);
 
 /** A candidate is identified by the Bearer token they connect with. */
-export const candidates = pgTable("candidates", {
+export const candidates = pgTable(
+  "candidates",
+  {
   id: uuid("id").primaryKey().defaultRandom(),
   // sha-256 hash of the bearer token; the raw token is shown once at mint time.
   tokenHash: text("token_hash").notNull().unique(),
@@ -67,21 +74,13 @@ export const candidates = pgTable("candidates", {
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+  },
+  // Email is looked up on every SSO sign-in (account linking).
+  (t) => ({ emailIdx: index("candidates_email_idx").on(t.email) }),
+);
 
 /** Resume markdown, versioned (history kept). Latest = highest version. */
 export const resumes = pgTable("resumes", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  candidateId: uuid("candidate_id")
-    .notNull()
-    .references(() => candidates.id, { onDelete: "cascade" }),
-  content: text("content").notNull(),
-  version: integer("version").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
-
-/** Candidate's existing agent rules file (CLAUDE.md/AGENTS.md/...), versioned. */
-export const agentConfigs = pgTable("agent_configs", {
   id: uuid("id").primaryKey().defaultRandom(),
   candidateId: uuid("candidate_id")
     .notNull()
@@ -135,13 +134,15 @@ export const applications = pgTable(
     positionId: uuid("position_id")
       .notNull()
       .references(() => positions.id, { onDelete: "cascade" }),
-    status: applicationStatus("status").notNull().default("applied"),
+    status: applicationStatus("status").notNull().default("submitted"),
     decision: applicationDecision("decision").notNull().default("apply"),
-    // JD ↔ resume fit comparison (computed by the candidate's agent).
+    // JD ↔ resume fit comparison — SELF-REPORTED by the candidate's agent.
+    // Display as candidate-provided context, never as an assessment.
     fitScore: integer("fit_score"),
     fitSummary: text("fit_summary"),
     fitGaps: jsonb("fit_gaps").$type<string[]>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({ uniqCandidatePosition: unique("uniq_candidate_position").on(t.candidateId, t.positionId) }),
 );

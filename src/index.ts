@@ -5,9 +5,15 @@ import { config } from "./config.js";
 import { bearerFromHeader, getCandidateByToken } from "./auth.js";
 import { buildMcpServer } from "./mcp/server.js";
 import { registerAdminRoutes } from "./admin/routes.js";
+import { registerRecruiterRoutes } from "./recruiter/routes.js";
 import { registerWebRoutes } from "./web/routes.js";
+import { rateLimit, requestLogger, securityHeaders } from "./web/http.js";
 
 const app = express();
+// Behind CloudFront/nginx in prod: trust one proxy hop so req.ip is the client.
+app.set("trust proxy", 1);
+app.use(requestLogger);
+app.use(securityHeaders);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
@@ -16,8 +22,17 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true, name: "hiring-mcp", version: "0.1.0" });
 });
 
-// Admin REST surface (Bearer ADMIN_TOKEN).
+// Brute-force protection on every credential-accepting surface.
+app.use("/login", rateLimit({ windowMs: 60_000, max: 10, name: "login" }));
+app.use("/recruiter/login", rateLimit({ windowMs: 60_000, max: 10, name: "rlogin" }));
+app.use("/admin", rateLimit({ windowMs: 60_000, max: 60, name: "admin" }));
+app.use("/auth", rateLimit({ windowMs: 60_000, max: 30, name: "auth" }));
+
+// Admin REST surface (Bearer ADMIN_TOKEN) — for ops and scripts.
 registerAdminRoutes(app);
+
+// Recruiter console (admin-token login -> short-lived signed cookie).
+registerRecruiterRoutes(app);
 
 // Candidate-facing web UI (session-cookie auth).
 registerWebRoutes(app);

@@ -5,6 +5,8 @@ import { db } from "../../db/index.js";
 import { applications, positions } from "../../db/schema.js";
 import { config } from "../../config.js";
 import { computeReadiness } from "../../services/readiness.js";
+import { notifyNewApplication } from "../../services/notify.js";
+import { isUuid } from "../../validation.js";
 import { jsonResult, errorResult, type ToolContext } from "../context.js";
 
 export function registerPositionTools(server: McpServer, ctx: ToolContext) {
@@ -27,7 +29,7 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
           posting_id: p.id,
           title: p.title,
           location: p.location,
-          link: `${config.publicBaseUrl}/positions/${p.id}`,
+          link: `${config.publicBaseUrl}/positions/${p.externalJobId ?? p.id}`,
         })),
       });
     },
@@ -42,6 +44,7 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
       inputSchema: { posting_id: z.string().describe("The posting UUID from browse_positions") },
     },
     async ({ posting_id }) => {
+      if (!isUuid(posting_id)) return errorResult(`posting_id must be a UUID from browse_positions (got "${posting_id}").`);
       const [p] = await db.select().from(positions).where(eq(positions.id, posting_id)).limit(1);
       if (!p) return errorResult(`No position found with id ${posting_id}.`);
       return jsonResult({
@@ -61,10 +64,10 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
         "Records the candidate's decision on a position AFTER you've shown them a JD↔resume fit comparison. " +
         "First compare their resume/profile against the job description, present the fit (strong matches + gaps) and a " +
         "0–100 fit_score, then ask whether they want to apply. Call this with their decision and your comparison. " +
-        "`decision: 'apply'` records the application as SHORTLISTED; `decision: 'decline'` still records it (as APPLIED) " +
-        "so the recruiter sees the candidate and the fit — the candidate's data is sent either way. Requires a complete " +
-        "profile and a resume. A candidate may only have ONE application per role. Never pass 'apply' without the " +
-        "candidate's explicit go-ahead.",
+        "`decision: 'apply'` submits the application; `decision: 'decline'` records a DECLINED entry that is still " +
+        "visible to the hiring team — TELL the candidate this before recording a decline. The fit fields are stored " +
+        "as the candidate's self-reported assessment. Requires a complete profile and a resume. A candidate may only " +
+        "have ONE application per role. Never pass 'apply' without the candidate's explicit go-ahead.",
       inputSchema: {
         posting_id: z.string().describe("The posting UUID (from target_position or browse_positions)"),
         decision: z.enum(["apply", "decline"]).describe("Whether the candidate chose to apply"),
@@ -74,6 +77,7 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
       },
     },
     async ({ posting_id, decision, fit_score, fit_summary, fit_gaps }) => {
+      if (!isUuid(posting_id)) return errorResult(`posting_id must be a UUID from browse_positions (got "${posting_id}").`);
       const r = await computeReadiness(ctx.candidateId);
       if (!r.applicationReady)
         return errorResult(
@@ -85,22 +89,10 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
       if (!p) return errorResult(`No position found with id ${posting_id}.`);
       if (p.status !== "open") return errorResult(`Position "${p.title}" is not open.`);
 
-      const status = decision === "apply" ? "shortlisted" : "applied";
+      const status = decision === "apply" ? ("submitted" as const) : ("declined" as const);
 
-      const [existing] = await db
-        .select()
-        .from(applications)
-        .where(and(eq(applications.candidateId, ctx.candidateId), eq(applications.positionId, posting_id)))
-        .limit(1);
-      if (existing)
-        return jsonResult({
-          recorded: true,
-          already: true,
-          application_id: existing.id,
-          status: existing.status,
-          note: "You've already applied to this role — only one application per role is allowed.",
-        });
-
+      // Atomic one-application-per-role: the unique constraint decides, so two
+      // concurrent calls can't race a check-then-insert.
       const [app] = await db
         .insert(applications)
         .values({
@@ -112,7 +104,32 @@ export function registerPositionTools(server: McpServer, ctx: ToolContext) {
           fitSummary: fit_summary,
           fitGaps: fit_gaps,
         })
+        .onConflictDoNothing({ target: [applications.candidateId, applications.positionId] })
         .returning();
+      if (!app) {
+        const [existing] = await db
+          .select()
+          .from(applications)
+          .where(and(eq(applications.candidateId, ctx.candidateId), eq(applications.positionId, posting_id)))
+          .limit(1);
+        return jsonResult({
+          recorded: true,
+          already: true,
+          application_id: existing?.id,
+          status: existing?.status,
+          note: "You've already applied to this role — only one application per role is allowed.",
+        });
+      }
+
+      notifyNewApplication({
+        application_id: app.id,
+        candidate_name: r.candidate.name,
+        candidate_email: r.candidate.email,
+        position_title: p.title,
+        status: app.status,
+        fit_score: fit_score ?? null,
+      });
+
       return jsonResult({
         recorded: true,
         decision,

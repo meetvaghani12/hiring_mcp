@@ -7,6 +7,12 @@ const BRAND = "join.hiring";
 const MCP_NAME = "hiring";
 const VERSION = "0.1.0";
 
+/** Render-time guard for stored URLs: only http(s) is ever linkable. */
+export function safeUrl(s: string | null | undefined): string | null {
+  if (!s || !/^https?:\/\//i.test(s)) return null;
+  return s;
+}
+
 export function escapeHtml(s: unknown): string {
   if (s === null || s === undefined) return "";
   return String(s)
@@ -128,6 +134,7 @@ details.fallback summary::-webkit-details-marker{display:none}
 .quote{border-left:3px solid var(--quote);padding:2px 0 2px 18px;color:var(--quote);font-style:italic;margin:8px 0 24px}
 .codehead{display:flex;justify-content:space-between;align-items:center;color:var(--muted);text-transform:uppercase;letter-spacing:.16em;font-size:12px;margin:26px 0 10px}
 .codehead button{background:none;border:none;color:var(--muted);cursor:pointer;font-family:inherit;font-size:12px;text-transform:uppercase;letter-spacing:.16em}
+.codehead button .copied,.copied{color:var(--green)}
 pre{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px 22px;overflow:auto;margin:0;color:var(--fg);white-space:pre-wrap;word-break:break-word;font-size:13.5px}
 .pre{white-space:pre-wrap;word-break:break-word}
 .field{margin:30px 0}
@@ -142,12 +149,36 @@ pre{background:var(--card);border:1px solid var(--border);border-radius:12px;pad
 .err{color:#e5534b;margin:12px 0}
 .reveal{border-color:color-mix(in srgb,var(--green) 45%,transparent)}
 footer{margin-top:64px;padding-top:22px;border-top:1px solid var(--border);color:var(--muted);font-size:13px}
+table.list{width:100%;border-collapse:collapse;margin:18px 0;font-size:13.5px}
+table.list th{color:var(--muted);text-transform:uppercase;letter-spacing:.12em;font-size:11px;text-align:left;padding:8px 10px;border-bottom:1px solid var(--border)}
+table.list td{padding:10px;border-bottom:1px solid var(--border);vertical-align:top}
+.badge.st-submitted{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 45%,transparent)}
+.badge.st-under_review{color:var(--amber);border-color:color-mix(in srgb,var(--amber) 45%,transparent)}
+.badge.st-interviewing{color:var(--quote);border-color:color-mix(in srgb,var(--quote) 45%,transparent)}
+.badge.st-hired{color:var(--green);border-color:color-mix(in srgb,var(--green) 45%,transparent)}
+.badge.st-rejected{color:#e5534b;border-color:rgba(229,83,75,.45)}
+.badge.st-declined{color:var(--muted)}
+.btn.sm{padding:5px 10px;font-size:12px}
+form.inline{display:inline-block;margin:0 4px 0 0}
+textarea.input{min-height:160px;resize:vertical}
 `;
 
 const THEME_SCRIPT = `
 (function(){try{var t=localStorage.getItem('hm-theme')||'dark';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
 function hmToggle(){var d=document.documentElement;var t=d.getAttribute('data-theme')==='dark'?'light':'dark';d.setAttribute('data-theme',t);try{localStorage.setItem('hm-theme',t);}catch(e){}document.getElementById('themeIcon').textContent=t==='dark'?'\\u2600':'\\u263E';}
-function hmCopy(id){var el=document.getElementById(id);navigator.clipboard.writeText(el.innerText);}
+// Copies data-copy (the real secret-bearing text) if present, else the visible
+// text — so tokens render as placeholders but the clipboard gets the real value.
+function hmCopy(btn,id){
+  var el=document.getElementById(id);
+  var txt=el.getAttribute('data-copy')||el.innerText;
+  navigator.clipboard.writeText(txt).then(function(){
+    if(btn.dataset.busy)return;
+    btn.dataset.busy='1';
+    var old=btn.innerHTML;
+    btn.innerHTML='<span class="copied">\\u2713 copied</span>';
+    setTimeout(function(){btn.innerHTML=old;delete btn.dataset.busy;},1500);
+  });
+}
 `;
 
 function nav(active: string): string {
@@ -162,7 +193,8 @@ function nav(active: string): string {
   </nav>`;
 }
 
-export function layout(opts: { active: string; body: string; authed?: boolean }): string {
+export function layout(opts: { active: string; body: string; authed?: boolean; navHtml?: string }): string {
+  const navBlock = opts.navHtml ?? (opts.authed === false ? '<div style="flex:1"></div>' : nav(opts.active));
   return `<!doctype html><html lang="en" data-theme="dark"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${BRAND}</title>
@@ -174,7 +206,7 @@ export function layout(opts: { active: string; body: string; authed?: boolean })
 </head><body><div class="wrap">
 <header class="top">
   <div class="brand"><span class="glyph"><i></i><i></i><i></i><i></i></span>${BRAND}<sup>β</sup></div>
-  ${opts.authed === false ? '<div style="flex:1"></div>' : nav(opts.active)}
+  ${navBlock}
   <button class="toggle" onclick="hmToggle()" aria-label="theme"><span id="themeIcon">&#9728;</span></button>
 </header>
 ${opts.body}
@@ -200,6 +232,29 @@ export function loginPage(error?: string): string {
   return layout({ active: "", body, authed: false });
 }
 
+/** Simple unauthenticated message page (friendly 404s etc.). */
+export function messagePage(title: string, text: string): string {
+  const body = `
+  <h1>${escapeHtml(title)}</h1>
+  <p class="muted">${escapeHtml(text)}</p>
+  <p><a class="btn" href="/wiki">View open positions</a></p>`;
+  return layout({ active: "", body, authed: false });
+}
+
+/** Public, shareable job-description page. */
+export function positionPage(p: Position, signedIn: boolean): string {
+  const applyHref = `/jobs/${encodeURIComponent(p.externalJobId ?? p.id)}/apply`;
+  const open = p.status === "open";
+  const body = `
+  <div class="label">open role</div>
+  <h1>${escapeHtml(p.title)}${open ? "" : ' <span class="badge closed">CLOSED</span>'}</h1>
+  <p class="muted">${escapeHtml(p.location ?? "Remote")} &middot; Full-time</p>
+  ${open ? `<p><a class="btn" href="${applyHref}">Apply${signedIn ? "" : " — sign in with LinkedIn"}</a></p>` : ""}
+  <hr class="hr">
+  <div class="resume">${renderMarkdown(p.description)}</div>`;
+  return layout({ active: "", body, authed: signedIn });
+}
+
 export function mockLinkedInPage(): string {
   const body = `
   <div class="label">mock linkedin · dev only</div>
@@ -207,9 +262,9 @@ export function mockLinkedInPage(): string {
   <p class="muted">LINKEDIN_MOCK is on, so no real LinkedIn app is needed. Enter an identity to simulate the OIDC userinfo response and run the full signup flow.</p>
   <form method="post" action="/auth/linkedin/mock" class="box">
     <div class="field" style="margin:0 0 16px"><div class="fl">name</div>
-      <input class="input" name="name" value="Meet Vaghani"></div>
+      <input class="input" name="name" placeholder="Ada Lovelace"></div>
     <div class="field" style="margin:0 0 16px"><div class="fl">email</div>
-      <input class="input" name="email" value="meetvaghani1239@gmail.com"></div>
+      <input class="input" name="email" placeholder="ada@example.com" required></div>
     <button class="btn linkedin" type="submit"><span class="in">in</span> Continue as this user</button>
   </form>`;
   return layout({ active: "", body, authed: false });
@@ -221,24 +276,36 @@ export function mcpPage(data: {
   tokenExpiresAt?: Date | null;
   targetTitle?: string | null;
 }): string {
-  const tokenDisplay = data.freshToken
-    ? escapeHtml(data.freshToken)
-    : data.tokenHint
-      ? `cand_…${escapeHtml(data.tokenHint)}`
-      : "cand_…";
-  const tokenForCmd = data.freshToken ?? "YOUR_TOKEN";
+  // The raw token is NEVER rendered as visible text — pages get screenshotted
+  // and shoulder-surfed. Visible text shows a BEARER_TOKEN placeholder; the
+  // real value rides in data-copy and only reaches the clipboard.
+  const hint = data.freshToken ? data.freshToken.slice(-4) : data.tokenHint;
+  const tokenDisplay = hint ? `cand_…${escapeHtml(hint)}` : "cand_…";
   const url = `${config.publicBaseUrl}/mcp/core`;
-  const claudeCmd = `claude mcp remove ${MCP_NAME}\nclaude mcp add --transport http ${MCP_NAME} \\\n  ${url} \\\n  --header "Authorization: Bearer ${tokenForCmd}"`;
-  const codexCmd = `[mcp_servers.${MCP_NAME}]\nurl = "${url}"\nenabled = true\n\n[mcp_servers.${MCP_NAME}.http_headers]\n"Authorization" = "Bearer ${tokenForCmd}"`;
+  const cmds = (tok: string) => ({
+    claude: `claude mcp remove ${MCP_NAME}\nclaude mcp add --transport http ${MCP_NAME} \\\n  ${url} \\\n  --header "Authorization: Bearer ${tok}"`,
+    codex: `[mcp_servers.${MCP_NAME}]\nurl = "${url}"\nenabled = true\n\n[mcp_servers.${MCP_NAME}.http_headers]\n"Authorization" = "Bearer ${tok}"`,
+  });
+  const shown = cmds("BEARER_TOKEN");
+  const real = cmds(data.freshToken ?? "BEARER_TOKEN");
 
   const reveal = data.freshToken
-    ? `<div class="box reveal"><div class="label" style="margin-bottom:8px;color:var(--green)">new token — copy it now, shown once</div><pre id="freshTok">${escapeHtml(data.freshToken)}</pre></div>`
+    ? `<div class="box reveal">
+        <div class="codehead" style="margin:0 0 10px"><span style="color:var(--green)">your new token — copy it now, available only on this page</span>
+          <button onclick="hmCopy(this,'freshTok')">copy</button></div>
+        <pre id="freshTok" data-copy="${escapeHtml(data.freshToken)}">BEARER_TOKEN  (hidden — click copy)</pre>
+      </div>`
     : "";
 
   const body = `
   <div class="label">mcp access token</div>
   <h1>Connect your agent.</h1>
   <p class="muted">Paste the command below into your terminal to connect. There's no sign-in step inside your agent — the token in the command handles it.</p>
+  <p class="muted">Your token is never shown on screen${
+    data.freshToken
+      ? " — the <strong>copy</strong> button puts the full command, real token included, on your clipboard."
+      : ". Only a fresh token can be copied — <strong>reissue</strong> below, then copy the command (it will include the new token)."
+  }</p>
   <p class="muted">Run it in your terminal, then <strong>start (or restart) your agent</strong> — MCP tools are loaded when the agent launches, so a fresh start picks them up automatically. This is a one-time setup.</p>
   <p class="muted">Setting this up comfortably is part of the initial screening.</p>
   <div class="row"><span class="k">status</span><span><span class="dot">&#9679;</span> connected</span></div>
@@ -253,10 +320,10 @@ export function mcpPage(data: {
     <p style="margin:0" class="muted">Confirm this matches your agent config. Reissue if you need the full value again.</p>
   </div><form method="post" action="/mcp/reissue"><button class="btn" type="submit">Reissue token</button></form></div></div>
 
-  <div class="codehead">claude code <button onclick="hmCopy('claudeCmd')">copy</button></div>
-  <pre id="claudeCmd">${escapeHtml(claudeCmd)}</pre>
-  <div class="codehead">codex <button onclick="hmCopy('codexCmd')">copy</button></div>
-  <pre id="codexCmd">${escapeHtml(codexCmd)}</pre>
+  <div class="codehead">claude code <button onclick="hmCopy(this,'claudeCmd')">copy</button></div>
+  <pre id="claudeCmd" data-copy="${escapeHtml(real.claude)}">${escapeHtml(shown.claude)}</pre>
+  <div class="codehead">codex <button onclick="hmCopy(this,'codexCmd')">copy</button></div>
+  <pre id="codexCmd" data-copy="${escapeHtml(real.codex)}">${escapeHtml(shown.codex)}</pre>
 
   <h2>Once connected</h2>
   <ol class="muted" style="line-height:2">
@@ -322,7 +389,7 @@ export function applyPage(
     : `Almost there — ask your <a href="/mcp">agent</a> to complete the items above. Missing: ${escapeHtml(r.missing.join(", "))}.`;
 
   const appCard = (a: CandidateApplication) => {
-    const score = a.fit_score != null ? `<span class="badge">fit ${a.fit_score}/100</span>` : "";
+    const score = a.fit_score != null ? `<span class="badge">self-assessed fit ${a.fit_score}/100</span>` : "";
     const gaps =
       a.fit_gaps && a.fit_gaps.length
         ? `<div class="fl" style="margin-top:14px">gaps to address</div><ul>${a.fit_gaps
@@ -331,7 +398,7 @@ export function applyPage(
         : "";
     return `<div class="card">
       <div class="pos"><h3 style="margin:0">${escapeHtml(a.title)}</h3>
-        <span class="badge">${escapeHtml(a.status)}</span></div>
+        <span class="badge">${escapeHtml(a.status.replace(/_/g, " "))}</span></div>
       <div style="margin-top:8px">${score}</div>
       ${a.fit_summary ? `<div class="fl" style="margin-top:14px">fit summary</div><div>${escapeHtml(a.fit_summary)}</div>` : ""}
       ${gaps}
@@ -349,6 +416,7 @@ export function applyPage(
   ${targetBlock}
   ${item(profileOk, "Profile")}
   ${item(r.hasResume, "Resume")}
+  ${r.sessionLogRequired ? item(r.hasSessionLog, "Session log") : ""}
   <p class="muted" style="margin-top:28px">${msg}</p>
   ${appsBlock}`;
   return layout({ active: "apply", body });
@@ -358,7 +426,6 @@ export function profilePage(data: {
   candidate: Candidate;
   readiness: Readiness;
   applicationsCount: number;
-  agentConfigVersion: number | null;
   resumeMarkdown: string | null;
 }): string {
   const c = data.candidate;
@@ -370,9 +437,11 @@ export function profilePage(data: {
       ? `<div class="field"><div class="fl">${label}</div><div class="${pre ? "pre" : ""}">${escapeHtml(value)}</div></div>`
       : "";
 
+  const linkedinHref = safeUrl(c.linkedinUrl);
+  const githubHref = safeUrl(c.githubUrl);
   const links = [
-    c.linkedinUrl ? `<a href="${escapeHtml(c.linkedinUrl)}">LinkedIn</a>` : "",
-    c.githubUrl ? `<a href="${escapeHtml(c.githubUrl)}">GitHub</a>` : "",
+    linkedinHref ? `<a href="${escapeHtml(linkedinHref)}" rel="noopener">LinkedIn</a>` : "",
+    githubHref ? `<a href="${escapeHtml(githubHref)}" rel="noopener">GitHub</a>` : "",
   ]
     .filter(Boolean)
     .join(" &middot; ");
